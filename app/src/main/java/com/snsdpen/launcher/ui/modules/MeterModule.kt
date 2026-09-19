@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,6 +33,7 @@ import com.snsdpen.launcher.model.Span
 import com.snsdpen.launcher.ui.GridGap
 import com.snsdpen.launcher.ui.LocalPalette
 import com.snsdpen.launcher.ui.LocalRefreshTick
+import com.snsdpen.launcher.ui.WhileResumed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -88,11 +89,12 @@ private fun MeterModule(scope: ModuleScope) {
     val shade = blocks[def.shade.mod(blocks.size)]
     val ink = if (shade.luminance() > 0.4f) InkDark else InkLight
     val empty = p.blockEmpty ?: p.fg.copy(alpha = 0.15f)
-    // 表示中だけ 30 秒ごとに読む(ページを離れると止まる)
-    val metric by produceState<Metric?>(initialValue = null, def.metric, tick) {
-        if (def.metric == "blank" || def.metric == "notif") return@produceState
+    // 表示中(RESUMED)だけ読む。裏に回ると止まる
+    var metric by androidx.compose.runtime.remember(def.metric) { androidx.compose.runtime.mutableStateOf<Metric?>(null) }
+    WhileResumed(def.metric, tick) {
+        if (def.metric == "blank" || def.metric == "notif") return@WhileResumed
         while (true) {
-            value = withContext(Dispatchers.IO) {
+            metric = withContext(Dispatchers.IO) {
                 when (def.metric) {
                     "battery" -> readBattery(context)
                     "memory" -> readMemory(context)

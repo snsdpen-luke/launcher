@@ -55,6 +55,9 @@ fun HomeScreen(
     /** 今の色味の名前(候補が 1 つなら null で名前を出さない) */
     themeName: String?,
     onCycleTheme: () -> Unit,
+    /** 色の組をシャッフルできる配色なら true(フッター右に■を出す) */
+    canShuffle: Boolean = false,
+    onShuffle: () -> Unit = {},
     onOpenDrawer: () -> Unit,
     onEvent: (ModuleEvent) -> Unit,
     notifCounts: Map<String, Int> = emptyMap(),
@@ -89,7 +92,7 @@ fun HomeScreen(
         )
         Footer(
             page = page, editMode = editMode, hasSelection = selectedRef != null,
-            themeName = themeName, onCycleTheme = onCycleTheme,
+            themeName = themeName, onCycleTheme = onCycleTheme, canShuffle = canShuffle, onShuffle = onShuffle,
             onOpenDrawer = onOpenDrawer, onExitEdit = onExitEdit, onAdd = onAdd, onRemoveSelected = onRemoveSelected,
         )
     }
@@ -106,6 +109,8 @@ private fun Footer(
     onRemoveSelected: () -> Unit,
     themeName: String? = null,
     onCycleTheme: () -> Unit = {},
+    canShuffle: Boolean = false,
+    onShuffle: () -> Unit = {},
 ) {
     val p = LocalPalette.current
     val openDrawer = rememberUpdatedState(onOpenDrawer)
@@ -146,6 +151,14 @@ private fun Footer(
                         .padding(horizontal = 24.dp, vertical = 8.dp),
                 )
             }
+        }
+        // 色の組のシャッフル(VIVID): アクセント色の■。タップで次の組
+        if (canShuffle && !editMode) {
+            Box(
+                Modifier
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onShuffle)
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+            ) { Marker(p.accent, size = 10.dp) }
         }
         // ページ名 + 色味名。タップで色味を順に切り替える(候補が 1 つなら名前だけ)
         Text(

@@ -1,6 +1,7 @@
 package com.snsdpen.launcher.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -30,25 +31,12 @@ data class Palette(
     val blocks: List<Color> = emptyList(),
     /** 空のブロックの色。null なら文字色を 15% で透かす */
     val blockEmpty: Color? = null,
-)
-
-/** PRIVATE: ダークモード。青みを抜いた暖かい黒に生成り寄りの文字(ブルーライトを減らす)。床は白黒グレーの濃淡 */
-val PrivatePalette = Palette(
-    bg = Color(0xFF121110),
-    fg = Color(0xFFE8E0D2),
-    fgDim = Color(0xFF8C857A),
-    line = Color(0xFF2A2825),
-    accent = Color(0xFFD9B36A),   // 柔らかい琥珀(通知の件数)
-    series = listOf(Color(0xFFE8E0D2), Color(0xFFA8A196), Color(0xFF6E685F), Color(0xFFD9B36A)),
-    blocks = listOf(
-        Color(0xFFD9D2C6),        // 0 BAT 明るいグレー
-        Color(0xFFB3AB9E),        // 1 WIFI
-        Color(0xFF8C857A),        // 2 SIG
-        Color(0xFF6E685F),        // 3 MEM
-        Color(0xFF56514A),        // 4 STO(空 #2A2927 とは離す)
-        Color(0xFFD9B36A),        // 5 NTF 琥珀(要注意)
-    ),
-    blockEmpty = Color(0x1AFFFFFF),
+    /** 空きマスを歩く差し色ブロックの色。空なら歩かない(2 個が 1 マスずつ動き、跡がグレーで残る) */
+    val vacantAccents: List<Color> = emptyList(),
+    /** アプリのアイコンをグレースケールで描く */
+    val monoIcons: Boolean = false,
+    /** 見出しを色チップにする(ラベルごとにハッシュで色を選ぶ)。空なら文字だけ */
+    val labelChips: List<Color> = emptyList(),
 )
 
 /** WORK: 暖かい白基調・黒文字 */
@@ -76,31 +64,22 @@ val DrivePalette = Palette(
     ),
 )
 
-/** PRIVATE の 2 つ目: 黒・白・グレーの地に、印刷の CMY(マゼンタ・シアン・イエロー)を差す */
+/** PRIVATE: 黒・白・グレーの地に、色の組(VividSets)を差す。組は 1 時間ごと、または■タップで回る */
 val VividPalette = Palette(
     bg = Color(0xFF141414),
     fg = Color(0xFFFFFFFF),
     fgDim = Color(0xFF9A9A9A),
     line = Color(0xFF2C2C2C),
-    accent = Color(0xFFFF2D8F),   // マゼンタ(通知の件数)
-    series = listOf(
-        Color(0xFFFF2D8F),        // マゼンタ
-        Color(0xFF22D3EE),        // シアン
-        Color(0xFFFFE600),        // イエロー
-        Color(0xFFFFFFFF),        // 白
-    ),
-    blocks = listOf(
-        Color(0xFFFFE600),        // 0 BAT イエロー
-        Color(0xFF22D3EE),        // 1 WIFI シアン
-        Color(0xFFFF2D8F),        // 2 SIG マゼンタ
-        Color(0xFF9A9A9A),        // 3 MEM グレー
-        Color(0xFF666666),        // 4 STO 濃いグレー(空 #2C2C2C とは離す)
-        Color(0xFFFF2D8F),        // 5 NTF マゼンタ(要注意)
-    ),
+    accent = Color(0xFFF2542D),   // 組で上書きされる(withAccents)
+    series = listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFFF7C948)),
+    blocks = listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFF9A9A9A), Color(0xFF666666), Color(0xFFF2542D)),
     blockEmpty = Color(0x1FFFFFFF),
+    vacantAccents = listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFFF7C948)),
+    monoIcons = false,   // アイコンは色付きのまま(モノクロは直感的でなかった)
+    labelChips = listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFFF7C948)),
 )
 
-/** PRIVATE の 3 つ目: 深い緑の地に生成りの文字、マスタードのアクセント。夜向き */
+/** PRIVATE の 2 つ目: 深い緑の地に生成りの文字、マスタードのアクセント。夜向き */
 val ForestPalette = Palette(
     bg = Color(0xFF1E3A32),
     fg = Color(0xFFF1EBDD),
@@ -128,7 +107,7 @@ val ForestPalette = Palette(
 data class ThemeOption(val name: String, val palette: Palette)
 
 val ThemeOptions: Map<Page, List<ThemeOption>> = mapOf(
-    Page.PRIVATE to listOf(ThemeOption("BLACK", PrivatePalette), ThemeOption("VIVID", VividPalette), ThemeOption("FOREST", ForestPalette)),
+    Page.PRIVATE to listOf(ThemeOption("VIVID", VividPalette), ThemeOption("FOREST", ForestPalette)),
     Page.WORK to listOf(ThemeOption("WHITE", WorkPalette)),
     Page.DRIVE to listOf(ThemeOption("NAVY", DrivePalette)),
 )
@@ -147,14 +126,14 @@ fun nextTheme(page: Page, variant: String?): String {
     return list[(i + 1) % list.size].name
 }
 
-val LocalPalette = staticCompositionLocalOf { PrivatePalette }
+val LocalPalette = staticCompositionLocalOf { VividPalette }
 
 val GridGap = 4.dp
 
 /** ページのパレットを配る。Text の既定色も合わせる */
 @Composable
-fun PageTheme(page: Page, variant: String? = null, content: @Composable () -> Unit) {
-    val p = paletteFor(page, variant)
+fun PageTheme(page: Page, variant: String? = null, setIndex: Int = 0, content: @Composable () -> Unit) {
+    val p = paletteFor(page, variant, setIndex)
     val scheme = if (p.isLight) {
         lightColorScheme(background = p.bg, surface = p.bg, onBackground = p.fg, onSurface = p.fg, primary = p.accent)
     } else {
@@ -170,10 +149,10 @@ fun PageTheme(page: Page, variant: String? = null, content: @Composable () -> Un
 fun LauncherTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            background = PrivatePalette.bg,
-            surface = PrivatePalette.bg,
-            onBackground = PrivatePalette.fg,
-            onSurface = PrivatePalette.fg,
+            background = VividPalette.bg,
+            surface = VividPalette.bg,
+            onBackground = VividPalette.fg,
+            onSurface = VividPalette.fg,
         ),
         content = content,
     )
@@ -181,3 +160,57 @@ fun LauncherTheme(content: @Composable () -> Unit) {
 
 /** 復帰や権限付与のたびに増える。外部データ(予定など)を読み直す合図 */
 val LocalRefreshTick = androidx.compose.runtime.compositionLocalOf { 0 }
+
+/** 位置や id から決まる擬似乱数(0 以上)。起動のたびに変わらない「ランダム」 */
+fun stableHash(vararg parts: Int): Int {
+    var h = 0x9E3779B1.toInt()
+    for (p in parts) h = (h xor (p * 0x85EBCA6B.toInt())).let { it xor (it ushr 13) } * 0xC2B2AE35.toInt()
+    return (h xor (h ushr 16)) and 0x7FFFFFFF
+}
+
+// ---- VIVID の色の組(時間や操作で回る) ----
+
+data class AccentSet(val name: String, val colors: List<Color>)
+
+/** 4 色: [0] アクセント(通知の件数・BAT) [1] WIFI [2] SIG [3] 差し色。チップとモザイクは 4 色を順に */
+val VividSets: List<AccentSet> = listOf(
+    AccentSet("SUMMER", listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFFF7C948))),
+    AccentSet("TROPICAL", listOf(Color(0xFF1FA7A0), Color(0xFFFFD23F), Color(0xFFFF6B6B), Color(0xFFF26430))),
+    AccentSet("SUNSET", listOf(Color(0xFFFF7A5A), Color(0xFFFFB347), Color(0xFFC44569), Color(0xFF6C4AB6))),
+    AccentSet("CITRUS", listOf(Color(0xFFF9C80E), Color(0xFFF86624), Color(0xFFEA3546), Color(0xFF43BCCD))),
+    AccentSet("VAPOR", listOf(Color(0xFFFF77A9), Color(0xFF9D4EDD), Color(0xFFC8B6FF), Color(0xFF8ECAE6))),
+    AccentSet("RETRO", listOf(Color(0xFFE63946), Color(0xFFF1FAEE), Color(0xFFA8DADC), Color(0xFF457B9D))),
+)
+
+/** 今の時刻から決まる組の番号(1 時間ごとに変わる。同じ時間帯は同じ) */
+fun hourlyVividIndex(): Int {
+    val now = java.time.LocalDateTime.now()
+    return ((now.toLocalDate().toEpochDay() * 24 + now.hour) % VividSets.size).toInt().let { if (it < 0) it + VividSets.size else it }
+}
+
+/** VIVID の地に色の組を当てる */
+fun Palette.withAccents(set: AccentSet): Palette = copy(
+    accent = set.colors[0],
+    series = set.colors,
+    blocks = listOf(set.colors[0], set.colors[1], set.colors[2], Color(0xFF9A9A9A), Color(0xFF666666), set.colors[0]),
+    vacantAccents = set.colors,
+    labelChips = set.colors,
+)
+
+/** ページの配色。VIVID なら色の組(setIndex)を当てる */
+fun paletteFor(page: Page, variant: String?, setIndex: Int): Palette {
+    val opt = themeOf(page, variant)
+    return if (opt.name == "VIVID") opt.palette.withAccents(VividSets[setIndex.mod(VividSets.size)]) else opt.palette
+}
+
+/**
+ * 表示中(RESUMED)のあいだだけ [block] を回す。裏に回ると止まり、戻ると最初からやり直す。
+ * 時計の秒・歩くブロック・計測の読み直しはこれで包む(引き継ぎの罠 17: 常時アニメは表示中のみ)。
+ */
+@Composable
+fun WhileResumed(vararg keys: Any?, block: suspend () -> Unit) {
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.LaunchedEffect(lifecycle, *keys) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) { block() }
+    }
+}

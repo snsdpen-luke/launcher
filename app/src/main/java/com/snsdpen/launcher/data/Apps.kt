@@ -10,6 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -77,8 +79,11 @@ fun AppIcon(app: AppEntry, size: Dp, modifier: Modifier = Modifier) {
         value = withContext(Dispatchers.IO) { IconCache.get(context, app) }
     }
     val bmp = bitmap
+    // 配色が「アイコンはモノクロ」なら彩度を落とす(色は差し色だけに残す演出)
+    val mono = com.snsdpen.launcher.ui.LocalPalette.current.monoIcons
+    val filter = if (mono) ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) else null
     if (bmp != null) {
-        Image(bitmap = bmp, contentDescription = app.label, modifier = modifier.size(size))
+        Image(bitmap = bmp, contentDescription = app.label, modifier = modifier.size(size), colorFilter = filter)
     } else {
         Box(modifier.size(size))
     }

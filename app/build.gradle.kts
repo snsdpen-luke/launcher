@@ -13,8 +13,8 @@ android {
         applicationId = "com.snsdpen.launcher"
         minSdk = 31
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.17.0"   // UI は BuildConfig.VERSION_NAME を読む。ここだけ上げればよい
+        versionCode = 28
+        versionName = "0.21.2"   // UI は BuildConfig.VERSION_NAME を読む。ここだけ上げればよい
     }
 
     buildTypes {

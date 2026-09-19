@@ -36,7 +36,8 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 19)
 - ページ `Page { PRIVATE, WORK, DRIVE }`。配置は (Face, Page) ごと、定義(フォルダ/リンク/ボード)は共有
 - 配色はページごとの `Palette`(ui/Theme.kt)。画面もモジュールも `LocalPalette.current` を読む
   - 1 ページに複数の色味を持てる(`ThemeOptions`)。フッター右のページ名タップで順に切替、選択は DataStore の `theme_<PAGE>`
-  - PRIVATE は BLACK(暖かい黒、床はグレー階調) → VIVID(黒 + CMY) → FOREST(深緑)。CREAM は WORK と被るので不採用、紺の COLORFUL は不評で廃止
+  - PRIVATE は VIVID(黒の地に色の組 `VividSets` が 1 時間ごと・■タップで回る。見出しは色チップ、空きマスを差し色のブロック 2 個が歩く(跡がグレーで消える)。アイコンは色付き) → FOREST(深緑)。BLACK・CREAM・紺の COLORFUL は不採用
+  - 演出は `Palette` のフィールドで切る: `monoIcons` / `labelChips` / `vacantAccents`(歩くブロック)。位置や順番で決まる擬似乱数 `stableHash`(起動のたびに変わらない)
   - 色味を足す = `Palette` を 1 個書いて `ThemeOptions` に 1 行
 - アプリは `PanelDef`(`panel:<id>`、アイコン + 名前の 1 行)、見出しは `LabelDef`(`label:<id>`)。編集フッターの `+ ADD` から APP / LABEL / BOARD
 - PRIVATE の初期配置は model/Layout.kt の `PrivateSeed`(パッケージ名の表)。端末にあるものだけ置く
@@ -52,5 +53,6 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 19)
 - サイズ由来の値は 0 と負を潰す(無限ループ・例外の元)
 - 画面の識別は smallestScreenWidthDp で行う
 - 文字だけのボタンは clickable の後ろに padding を付ける
-- 常時アニメは表示中のみ
+- 常時アニメ・定期の読み直しは表示中のみ。ループは `WhileResumed`(ui/Theme.kt、repeatOnLifecycle RESUMED)で包む。裏で 0.0% を実機で確認済み(2026-09-19)
+- 毎秒・毎 0.7 秒の状態は自分の Composable に閉じる(グリッド本体のラムダで読むと全モジュールが再構成される)
 - LayoutState.version の既定値は 1 に固定(変えない)。Json は encodeDefaults = true(既定値省略で移行が空振りする)

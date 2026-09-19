@@ -79,6 +79,9 @@ import com.snsdpen.launcher.ui.LocalRefreshTick
 import com.snsdpen.launcher.ui.PageTheme
 import com.snsdpen.launcher.ui.PanelEditSheet
 import com.snsdpen.launcher.ui.ThemeOptions
+import com.snsdpen.launcher.ui.VividSets
+import com.snsdpen.launcher.ui.hourlyVividIndex
+import com.snsdpen.launcher.ui.themeOf
 import com.snsdpen.launcher.ui.nextTheme
 import com.snsdpen.launcher.ui.TaskDialog
 import com.snsdpen.launcher.ui.MeterPickerSheet
@@ -173,7 +176,19 @@ fun LauncherApp(surface: Surface) {
     val openDrawer = rememberUpdatedState { drawerOpen = true }
 
     // ページの地色を補間し、白基調ではステータスバーのアイコンを黒にする
-    val palette = paletteFor(page, themes[page])
+    // VIVID の色の組: 1 時間ごとに変わる。■タップで手動シャッフル(次の時刻の変わり目まで有効)
+    var vividSet by remember { mutableStateOf(hourlyVividIndex()) }
+    var vividManual by remember { mutableStateOf<Int?>(null) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        var lastHour = hourlyVividIndex()
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            val h = hourlyVividIndex()
+            if (h != lastHour) { lastHour = h; vividManual = null; vividSet = h }
+        }
+    }
+    val setIndex = vividManual ?: vividSet
+    val palette = paletteFor(page, themes[page], setIndex)
     val bg by animateColorAsState(palette.bg, tween(220), label = "bg")
     val view = LocalView.current
     SideEffect {
@@ -230,7 +245,7 @@ fun LauncherApp(surface: Surface) {
                 },
                 label = "page",
             ) { p ->
-                PageTheme(p, themes[p]) {
+                PageTheme(p, themes[p], setIndex) {
                 HomeScreen(
                     placed = state.resolved(face, p, surface),
                     spec = spec,
@@ -249,8 +264,10 @@ fun LauncherApp(surface: Surface) {
                         selectedRef?.let { ref -> store.update { it.removeRef(face, p, ref) } }
                         selectedRef = null
                     },
-                    themeName = if ((ThemeOptions[p]?.size ?: 1) > 1) com.snsdpen.launcher.ui.themeOf(p, themes[p]).name else null,
+                    themeName = if ((ThemeOptions[p]?.size ?: 1) > 1) themeOf(p, themes[p]).name else null,
                     onCycleTheme = { store.setTheme(p, nextTheme(p, themes[p])) },
+                    canShuffle = themeOf(p, themes[p]).name == "VIVID",
+                    onShuffle = { vividManual = ((vividManual ?: vividSet) + 1 + (System.nanoTime() % (VividSets.size - 1)).toInt()).mod(VividSets.size) },
                     onOpenDrawer = { drawerOpen = true },
                     onEvent = onEvent,
                     notifCounts = notifCounts,
@@ -262,7 +279,7 @@ fun LauncherApp(surface: Surface) {
             }
         }
 
-        PageTheme(page, themes[page]) {
+        PageTheme(page, themes[page], setIndex) {
         openFolderId?.let { id ->
             val folder = state.folders.firstOrNull { it.id == id }
             if (folder == null) {

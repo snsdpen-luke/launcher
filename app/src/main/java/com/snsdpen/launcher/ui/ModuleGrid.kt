@@ -46,6 +46,56 @@ import com.snsdpen.launcher.model.resolveSwap
 import com.snsdpen.launcher.model.vacantCells
 import kotlin.math.roundToInt
 
+/** 空きマスを歩く差し色ブロック */
+private data class Walker(val pos: GridPos, val trail: List<GridPos>, val colorIndex: Int)
+private const val TrailLength = 8
+
+/**
+ * 差し色のブロック 2 個が空きマスを 0.7 秒に 1 マスずつ歩き、跡がグレーで残って消える。
+ * 状態と描画をここに閉じ、再構成がグリッド全体に波及しないようにする。表示中(RESUMED)だけ動く。
+ */
+@Composable
+private fun WanderingBlocks(
+    vacant: List<GridPos>,
+    cell: androidx.compose.ui.unit.Dp,
+    gap: androidx.compose.ui.unit.Dp,
+    colors: List<androidx.compose.ui.graphics.Color>,
+    trail: androidx.compose.ui.graphics.Color,
+) {
+    val walkers = remember { androidx.compose.runtime.mutableStateListOf<Walker>() }
+    com.snsdpen.launcher.ui.WhileResumed(vacant) {
+        walkers.clear()
+        if (vacant.isEmpty()) return@WhileResumed
+        val rnd = kotlin.random.Random(System.currentTimeMillis())
+        repeat(2) { i -> walkers += Walker(vacant[rnd.nextInt(vacant.size)], emptyList(), i) }
+        val set = vacant.map { it.col to it.row }.toSet()
+        while (true) {
+            kotlinx.coroutines.delay(700)
+            for (i in walkers.indices) {
+                val w = walkers[i]
+                val here = w.pos
+                val prev = w.trail.firstOrNull()
+                val around = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
+                    .map { (dc, dr) -> GridPos(here.col + dc, here.row + dr) }
+                    .filter { (it.col to it.row) in set }
+                val forward = around.filter { it.col != prev?.col || it.row != prev?.row }
+                val next = (forward.ifEmpty { around }).let { if (it.isEmpty()) vacant[rnd.nextInt(vacant.size)] else it[rnd.nextInt(it.size)] }
+                walkers[i] = w.copy(pos = next, trail = (listOf(here) + w.trail).take(TrailLength))
+            }
+        }
+    }
+    fun x(c: GridPos) = (cell + gap) * c.col
+    fun y(c: GridPos) = (cell + gap) * c.row
+    walkers.forEach { w ->
+        w.trail.forEachIndexed { age, c ->
+            val a = 0.10f * (1f - age.toFloat() / TrailLength)
+            Box(Modifier.offset(x(c), y(c)).size(cell, cell).background(trail.copy(alpha = a)))
+        }
+        val color = colors[w.colorIndex % colors.size]
+        Box(Modifier.offset(x(w.pos), y(w.pos)).size(cell, cell).background(color.copy(alpha = 0.85f)))
+    }
+}
+
 /**
  * セル座標でモジュールを絶対配置するグリッド。
  * タップ/長押し/ドラッグ/入れ替え/リサイズはここのラッパーが一元処理し、モジュール本体は受動。
@@ -98,6 +148,13 @@ fun ModuleGrid(
         fun yOf(p: GridPos) = (cellH + gap) * p.row
         fun wOf(p: GridPos) = cellW * p.colSpan + gap * (p.colSpan - 1)
         fun hOf(p: GridPos) = cellH * p.rowSpan + gap * (p.rowSpan - 1)
+
+        // ---- 空きマスを歩く差し色(配色が持っていれば。通常モードのみ) ----
+        // 状態は WanderingBlocks の中に閉じる。ここで読むと 0.7 秒ごとに全モジュールが再構成される
+        if (!editMode && pal.vacantAccents.isNotEmpty()) {
+            val vacant = remember(placed, spec) { vacantCells(placed, spec) }
+            WanderingBlocks(vacant = vacant, cell = cellW, gap = gap, colors = pal.vacantAccents, trail = pal.fg)
+        }
 
         // ---- 空きセル(編集モードのみ薄く描く。タップで選択解除) ----
         if (editMode) {
