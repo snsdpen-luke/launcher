@@ -47,12 +47,21 @@ fun loadLaunchableApps(context: Context): List<AppEntry> {
         .sortedBy { it.label.lowercase() }
 }
 
-fun launchApp(context: Context, app: AppEntry) {
+/**
+ * アプリを起動する。[bounds](画面座標 px)を渡すと、その矩形の自由配置ウィンドウ(Samsung のポップアップ)で開く。
+ * ホームは分割画面の相棒になれないが、自由配置ならランチャーを背景に残したまま横に窓を出せる
+ */
+fun launchApp(context: Context, app: AppEntry, bounds: android.graphics.Rect? = null) {
     val intent = Intent(Intent.ACTION_MAIN)
         .addCategory(Intent.CATEGORY_LAUNCHER)
         .setClassName(app.packageName, app.activityName)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-    runCatching { context.startActivity(intent) }
+    runCatching {
+        if (bounds != null && !bounds.isEmpty) {
+            val opts = android.app.ActivityOptions.makeBasic().apply { launchBounds = bounds }
+            context.startActivity(intent, opts.toBundle())
+        } else context.startActivity(intent)
+    }
 }
 
 /** アプリアイコンのメモリキャッシュ */

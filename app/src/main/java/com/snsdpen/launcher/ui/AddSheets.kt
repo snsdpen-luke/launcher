@@ -78,14 +78,14 @@ private fun SheetRow(label: String, hint: String, onClick: () -> Unit) {
 
 /** 何を足すか */
 @Composable
-fun AddSheet(onApp: () -> Unit, onLabel: () -> Unit, onTile: () -> Unit, onBoard: () -> Unit, onClose: () -> Unit) {
+fun AddSheet(onApp: () -> Unit, onLabel: () -> Unit, onTile: () -> Unit, onLink: () -> Unit, onClose: () -> Unit) {
     val p = LocalPalette.current
     BottomSheetFrame(onClose) {
         Text("ADD", color = p.fgDim, fontSize = 11.sp)
         SheetRow("APP", "アプリを 1 個", onApp)
         SheetRow("LABEL", "見出しの行", onLabel)
         SheetRow("METER", "床のタイル(ブロック数で表す)", onTile)
-        SheetRow("BOARD", "リンクの束", onBoard)
+        SheetRow("LINK", "URL を 1 本", onLink)
     }
 }
 
@@ -100,6 +100,7 @@ fun MeterPickerSheet(onPick: (String) -> Unit, onClose: () -> Unit) {
         SheetRow("STORAGE", "使用中(アンバー)", { onPick("storage") })
         SheetRow("WIFI", "Wi-Fi の強さ", { onPick("wifi") })
         SheetRow("SIGNAL", "電波の強さ", { onPick("signal") })
+        SheetRow("BLUETOOTH", "オフ / オン / 接続", { onPick("bluetooth") })
         SheetRow("NOTIF", "未読の通知の数", { onPick("notif") })
         SheetRow("BLANK", "全部埋め(飾り)", { onPick("blank") })
     }

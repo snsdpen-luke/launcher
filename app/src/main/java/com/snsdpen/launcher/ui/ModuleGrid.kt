@@ -10,6 +10,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,6 +35,7 @@ import com.snsdpen.launcher.data.AppEntry
 import com.snsdpen.launcher.model.Face
 import com.snsdpen.launcher.model.GridPos
 import com.snsdpen.launcher.model.GridSpec
+import androidx.compose.ui.graphics.Color
 import com.snsdpen.launcher.model.LayoutState
 import com.snsdpen.launcher.model.ModuleEvent
 import com.snsdpen.launcher.model.ModuleRegistry
@@ -42,16 +45,65 @@ import com.snsdpen.launcher.model.PlacedRef
 import com.snsdpen.launcher.model.Span
 import com.snsdpen.launcher.model.Surface
 import com.snsdpen.launcher.model.canPlace
-import com.snsdpen.launcher.model.resolveSwap
+import com.snsdpen.launcher.model.resolveDrop
 import com.snsdpen.launcher.model.vacantCells
 import kotlin.math.roundToInt
 
-/** 空きマスを歩く差し色ブロック */
+/**
+ * 床のモザイク。マスごとに単色のブロックを 1 個。段は上→下に流れ(tones の先頭が上)、
+ * マスの位置から決まる擬似乱数で 1 段だけ揺れる(手貼りのタイルに見せる)。
+ * 30 秒に 1 回、マスの 1/4 だけ揺れを選び直し、0.6 秒でにじむように切り替える(表示中のみ)。
+ */
+@Composable
+private fun MosaicFloor(spec: GridSpec, cell: androidx.compose.ui.unit.Dp, gap: androidx.compose.ui.unit.Dp, tones: List<Color>) {
+    val n = tones.size
+    val cols = spec.cols.coerceAtLeast(1); val rows = spec.rows.coerceAtLeast(1)
+    fun toneAt(col: Int, r: Int, seed: Int): Int {
+        val t = r.toFloat() / (rows - 1).coerceAtLeast(1)
+        val jitter = when (stableHash(col, r, seed) % 6) { 0 -> -1; 1 -> 1; else -> 0 }
+        return ((t * n).toInt() + jitter).coerceIn(0, n - 1)
+    }
+    // 各マスの「今の段」と「次の段」。progress が 0→1 で次に寄る
+    var from by remember(spec, n) { mutableStateOf(IntArray(cols * rows) { toneAt(it % cols, it / cols, 7) }) }
+    var to by remember(spec, n) { mutableStateOf(from) }
+    val progress = remember { androidx.compose.animation.core.Animatable(1f) }
+    com.snsdpen.launcher.ui.WhileResumed(spec, n) {
+        var seed = 8
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            seed++
+            val next = to.copyOf()
+            for (i in next.indices) if (stableHash(i, seed, 3) % 4 == 0) next[i] = toneAt(i % cols, i / cols, seed)
+            from = to; to = next
+            progress.snapTo(0f)
+            progress.animateTo(1f, androidx.compose.animation.core.tween(600))
+        }
+    }
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+        val c = cell.toPx(); val g = gap.toPx()
+        val k = progress.value
+        // 壁はマス目ぴったり(半端なタイルは描かない。余りは両側の余白)
+        val drawCols = cols
+        val drawRows = rows
+        for (r in 0 until drawRows) for (col in 0 until drawCols) {
+            val x0 = col * (c + g); val y0 = r * (c + g)
+            val w = minOf(c, size.width - x0); val h = minOf(c, size.height - y0)
+            if (w <= 0f || h <= 0f) continue
+            val color = if (r < rows && col < cols) {
+                val i = r * cols + col
+                if (from[i] == to[i] || k >= 1f) tones[to[i]] else androidx.compose.ui.graphics.lerp(tones[from[i]], tones[to[i]], k)
+            } else tones[toneAt(col, r.coerceAtMost(rows - 1), 7)]
+            drawRect(color, topLeft = androidx.compose.ui.geometry.Offset(x0, y0), size = androidx.compose.ui.geometry.Size(w, h))
+        }
+    }
+}
+
+/** 空きマスを歩く Claude Code のマスコット(本体は差し色)。跡が薄く残る */
 private data class Walker(val pos: GridPos, val trail: List<GridPos>, val colorIndex: Int)
 private const val TrailLength = 8
 
 /**
- * 差し色のブロック 2 個が空きマスを 0.7 秒に 1 マスずつ歩き、跡がグレーで残って消える。
+ * 差し色のブロック 1 個が空きマスを 0.7 秒に 1 マスずつ歩き、跡がグレーで残って消える。
  * 状態と描画をここに閉じ、再構成がグリッド全体に波及しないようにする。表示中(RESUMED)だけ動く。
  */
 @Composable
@@ -67,7 +119,7 @@ private fun WanderingBlocks(
         walkers.clear()
         if (vacant.isEmpty()) return@WhileResumed
         val rnd = kotlin.random.Random(System.currentTimeMillis())
-        repeat(2) { i -> walkers += Walker(vacant[rnd.nextInt(vacant.size)], emptyList(), i) }
+        repeat(1) { i -> walkers += Walker(vacant[rnd.nextInt(vacant.size)], emptyList(), i) }
         val set = vacant.map { it.col to it.row }.toSet()
         while (true) {
             kotlinx.coroutines.delay(700)
@@ -92,7 +144,7 @@ private fun WanderingBlocks(
             Box(Modifier.offset(x(c), y(c)).size(cell, cell).background(trail.copy(alpha = a)))
         }
         val color = colors[w.colorIndex % colors.size]
-        Box(Modifier.offset(x(w.pos), y(w.pos)).size(cell, cell).background(color.copy(alpha = 0.85f)))
+        com.snsdpen.launcher.ui.ClaudeMark(body = color, ink = trail, modifier = Modifier.offset(x(w.pos), y(w.pos)).size(cell, cell))
     }
 }
 
@@ -116,8 +168,8 @@ fun ModuleGrid(
     onEnterEdit: () -> Unit,
     onEvent: (ModuleEvent) -> Unit,
     notifCounts: Map<String, Int> = emptyMap(),
-    onMove: (ref: String, pos: GridPos) -> Unit,
-    onSwap: (refA: String, posA: GridPos, refB: String, posB: GridPos) -> Unit,
+    /** ドロップの結果(そのページの配置全体) */
+    onArrange: (List<PlacedRef>) -> Unit,
     onResize: (ref: String, w: Int, h: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -136,18 +188,25 @@ fun ModuleGrid(
 
         // 検出器のキーは固定し、最新値は rememberUpdatedState から読む(古い値を掴まない)
         val placedLatest = rememberUpdatedState(placed)
-        val onMoveLatest = rememberUpdatedState(onMove)
-        val onSwapLatest = rememberUpdatedState(onSwap)
+        val onArrangeLatest = rememberUpdatedState(onArrange)
         val onResizeLatest = rememberUpdatedState(onResize)
 
         var dragKey by remember { mutableStateOf<String?>(null) }
         var dragOffset by remember { mutableStateOf(Offset.Zero) }
         var resizePreview by remember { mutableStateOf<GridPos?>(null) }
+        /** ドラッグ中の落とし先(解決後の位置)と、置けるかどうか */
+        var dropPreview by remember { mutableStateOf<Pair<GridPos, Boolean>?>(null) }
 
         fun xOf(p: GridPos) = (cellW + gap) * p.col
         fun yOf(p: GridPos) = (cellH + gap) * p.row
         fun wOf(p: GridPos) = cellW * p.colSpan + gap * (p.colSpan - 1)
         fun hOf(p: GridPos) = cellH * p.rowSpan + gap * (p.rowSpan - 1)
+        // マス目全体を左右中央に置く。余りは両側の余白にする(半端なマスは作らない)
+        val gridW = cellW * spec.cols + gap * (spec.cols - 1)
+        Box(Modifier.width(gridW).fillMaxHeight().align(Alignment.TopCenter)) {
+
+        // ---- 床のモザイク(配色が持っていれば)。全マスの後ろに単色ブロックを敷く ----
+        if (pal.floor.isNotEmpty()) MosaicFloor(spec = spec, cell = cellW, gap = gap, tones = pal.floor)
 
         // ---- 空きマスを歩く差し色(配色が持っていれば。通常モードのみ) ----
         // 状態は WanderingBlocks の中に閉じる。ここで読むと 0.7 秒ごとに全モジュールが再構成される
@@ -172,6 +231,17 @@ fun ModuleGrid(
             }
         }
 
+        // ---- ドラッグ中の落とし先(置けるならアクセント、置けないなら赤) ----
+        dropPreview?.let { (pos, ok) ->
+            Box(
+                Modifier
+                    .offset(xOf(pos), yOf(pos))
+                    .size(wOf(pos), hOf(pos))
+                    .zIndex(3f)
+                    .border(2.dp, if (ok) pal.accent else androidx.compose.ui.graphics.Color(0xFFE05A5A)),
+            )
+        }
+
         placed.forEach { pr ->
             val spec2 = ModuleRegistry.specOf(pr.ref) ?: return@forEach
             val key = pr.ref
@@ -190,6 +260,7 @@ fun ModuleGrid(
                 apps = apps,
                 emit = onEvent,
                 notifCounts = notifCounts,
+                cell = cellW,
             )
 
             Box(
@@ -218,23 +289,29 @@ fun ModuleGrid(
                                 onDrag = { change, amount ->
                                     change.consume()
                                     dragOffset += amount
+                                    if (strideWPx > 0f && strideHPx > 0f) {
+                                        val t = GridPos(
+                                            (pr.col + dragOffset.x / strideWPx).roundToInt(),
+                                            (pr.row + dragOffset.y / strideHPx).roundToInt(),
+                                            pr.colSpan, pr.rowSpan,
+                                        )
+                                        val others = placedLatest.value.filter { it.ref != pr.ref }
+                                        val result = resolveDrop(pr, t, spec, others)
+                                        val landed = result?.firstOrNull { it.ref == pr.ref }?.pos ?: t
+                                        dropPreview = landed to (result != null)
+                                    }
                                 },
-                                onDragCancel = { dragKey = null },
+                                onDragCancel = { dragKey = null; dropPreview = null },
                                 onDragEnd = {
                                     dragKey = null
+                                    dropPreview = null
                                     if (strideWPx <= 0f || strideHPx <= 0f) return@detectDragGestures
                                     val newCol = (pr.col + dragOffset.x / strideWPx).roundToInt()
                                     val newRow = (pr.row + dragOffset.y / strideHPx).roundToInt()
                                     val target = GridPos(newCol, newRow, pr.colSpan, pr.rowSpan)
                                     if (target == pr.pos) return@detectDragGestures
                                     val others = placedLatest.value.filter { it.ref != pr.ref }
-                                    if (canPlace(target, spec, others)) {
-                                        onMoveLatest.value(pr.ref, target)
-                                    } else {
-                                        resolveSwap(pr, target, spec, others)?.let { (other, otherPos) ->
-                                            onSwapLatest.value(pr.ref, target, other.ref, otherPos)
-                                        }
-                                    }
+                                    resolveDrop(pr, target, spec, others)?.let { onArrangeLatest.value(it) }
                                 },
                             )
                         } else Modifier
@@ -268,10 +345,12 @@ fun ModuleGrid(
                             .background(pal.bg.copy(alpha = 0.85f))
                             .padding(horizontal = 4.dp, vertical = 1.dp),
                     )
+                    // 1 行しか無いモジュールでは文字に被らないよう小さく
+                    val handle = if (pr.rowSpan <= 1) 20.dp else 28.dp
                     Box(
                         Modifier
                             .align(Alignment.BottomEnd)
-                            .size(28.dp)
+                            .size(handle)
                             .background(pal.accent)
                             .pointerInput(key, spec) {
                                 var acc = Offset.Zero
@@ -304,10 +383,11 @@ fun ModuleGrid(
                             },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("◢", color = pal.bg, fontSize = 12.sp)
+                        Text("◢", color = pal.bg, fontSize = if (pr.rowSpan <= 1) 9.sp else 12.sp)
                     }
                 }
             }
+        }
         }
     }
 }

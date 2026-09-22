@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.drawText
 import com.snsdpen.launcher.model.Face
 import com.snsdpen.launcher.model.ModuleEvent
 import com.snsdpen.launcher.model.ModuleScope
@@ -34,8 +35,8 @@ import java.util.Locale
 val ClockSpec = ModuleSpec(
     kind = REF_CLOCK,
     name = "CLOCK",
-    defaultSize = { face -> if (face == Face.COVER) Span(16, 3) else Span(8, 2) },
-    minSize = { Span(6, 2) },
+    defaultSize = { face -> if (face == Face.COVER) Span(8, 1) else Span(8, 1) },
+    minSize = { Span(6, 1) },
     onTap = { _, emit ->
         emit(ModuleEvent.OpenIntent(Intent(AlarmClock.ACTION_SHOW_ALARMS)))
     },
@@ -47,6 +48,16 @@ private val SecFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("ss", Locale
 private val DateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d", Locale.ROOT)
 private val DowFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE", Locale.ENGLISH)
 
+/** Roboto の大文字・数字の高さ(em 比)。数字の高さをマスに合わせる計算に使う */
+private const val CapHeight = 0.711f
+/** 時刻の数字の高さ(マスに対する比)。1.0 だと強すぎた */
+private const val TimeHeight = 0.75f
+
+/**
+ * 時計は 1 行。時刻の数字の高さをモジュールの高さ(= マス)にぴったり合わせ、
+ * 秒・日付・曜日はその右に、ベースラインをマスの下辺に揃えて 1 行に並べる。
+ * フォントの上下の余白に頼らず、文字を測って自分で描く(マス目とずれない)。
+ */
 @Composable
 private fun ClockModule(scope: ModuleScope) {
     val p = LocalPalette.current
@@ -60,43 +71,33 @@ private fun ClockModule(scope: ModuleScope) {
             now = LocalDateTime.now()
         }
     }
-    // 高さで 3 段階: 3 行以上 = 大、2 行 = 中(日付あり)、1 行 = 時刻だけ
-    val h = scope.span.h
-    val big = h >= 3
-    val showDate = h >= 2
-    val timeSize = if (big) 36.sp else if (h == 2) 26.sp else 18.sp
-    val timeLine = if (big) 38.sp else if (h == 2) 28.sp else 20.sp
     val timeColor = if (scope.page == Page.DRIVE) p.accent else p.fg
     // 曜日の色: 配色の系列色を曜日で回す(日=0 … 土=6)。系列が無ければアクセント
     val dow = now.dayOfWeek.value % 7
     val dowColor = if (p.series.isNotEmpty()) p.series[dow % p.series.size] else p.accent
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val time = now.format(TimeFmt)
+    val sec = now.format(SecFmt)
+    val date = now.format(DateFmt)
+    val dowText = now.format(DowFmt).uppercase(Locale.ENGLISH)
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 2.dp)) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(now.format(TimeFmt), color = timeColor, fontSize = timeSize, lineHeight = timeLine)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                now.format(SecFmt),
-                color = p.accent,
-                fontSize = if (big) 16.sp else 11.sp,
-                lineHeight = if (big) 30.sp else 18.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(bottom = if (big) 4.dp else 3.dp),
-            )
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+        val h = size.height
+        if (h <= 0f) return@Canvas
+        // 数字の高さ = モジュールの高さの 75%(マスいっぱいは強調しすぎ)。下辺はマスの下辺。fontSize(px) = 高さ / CapHeight
+        val timeStyle = androidx.compose.ui.text.TextStyle(fontSize = (h * TimeHeight / CapHeight).toSp(), color = timeColor)
+        val smallStyle = androidx.compose.ui.text.TextStyle(fontSize = (h * 0.40f).toSp(), fontWeight = FontWeight.Medium)
+        val gap = h * 0.22f
+        var x = 0f
+        fun put(text: String, style: androidx.compose.ui.text.TextStyle, color: androidx.compose.ui.graphics.Color) {
+            val layout = measurer.measure(text, style, maxLines = 1)
+            // ベースラインをマスの下辺に置く(数字の上端がマスの上辺に来る)
+            drawText(layout, color = color, topLeft = androidx.compose.ui.geometry.Offset(x, h - layout.firstBaseline))
+            x += layout.size.width + gap
         }
-        if (showDate) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(now.format(DateFmt), color = p.fgDim, fontSize = if (big) 12.sp else 11.sp, lineHeight = if (big) 14.sp else 12.sp)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    now.format(DowFmt).uppercase(Locale.ENGLISH),
-                    color = dowColor,
-                    fontSize = if (big) 12.sp else 11.sp,
-                    lineHeight = if (big) 14.sp else 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                )
-            }
-        }
+        put(time, timeStyle, timeColor)
+        put(sec, smallStyle, p.accent)
+        put(date, smallStyle, p.fgDim)
+        put(dowText, smallStyle.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp), dowColor)
     }
 }

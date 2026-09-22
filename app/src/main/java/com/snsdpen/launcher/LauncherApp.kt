@@ -17,7 +17,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -42,8 +46,11 @@ import com.snsdpen.launcher.data.openLink
 import com.snsdpen.launcher.model.LabelDef
 import com.snsdpen.launcher.model.ModuleEvent
 import com.snsdpen.launcher.model.Surface
+import com.snsdpen.launcher.model.Face
 import com.snsdpen.launcher.model.addBoard
 import com.snsdpen.launcher.model.addLabel
+import com.snsdpen.launcher.model.addLink
+import com.snsdpen.launcher.model.updateLink
 import com.snsdpen.launcher.model.addPanel
 import com.snsdpen.launcher.model.addTask
 import com.snsdpen.launcher.model.addMeter
@@ -56,11 +63,9 @@ import com.snsdpen.launcher.model.deleteTask
 import com.snsdpen.launcher.model.faceOf
 import com.snsdpen.launcher.model.gridFor
 import com.snsdpen.launcher.model.linksOf
-import com.snsdpen.launcher.model.moveRef
 import com.snsdpen.launcher.model.removeRef
 import com.snsdpen.launcher.model.resizeRef
 import com.snsdpen.launcher.model.resolved
-import com.snsdpen.launcher.model.swapRefs
 import com.snsdpen.launcher.model.toggleTask
 import com.snsdpen.launcher.model.updateBoard
 import com.snsdpen.launcher.model.updateLabel
@@ -74,13 +79,14 @@ import com.snsdpen.launcher.ui.AppPickerSheet
 import com.snsdpen.launcher.ui.BoardEditSheet
 import com.snsdpen.launcher.ui.FolderOverlay
 import com.snsdpen.launcher.ui.HomeScreen
+import com.snsdpen.launcher.ui.HomePane
 import com.snsdpen.launcher.ui.LabelDialog
+import com.snsdpen.launcher.ui.LinkDialog
+import com.snsdpen.launcher.model.LinkDef
 import com.snsdpen.launcher.ui.LocalRefreshTick
 import com.snsdpen.launcher.ui.PageTheme
 import com.snsdpen.launcher.ui.PanelEditSheet
 import com.snsdpen.launcher.ui.ThemeOptions
-import com.snsdpen.launcher.ui.VividSets
-import com.snsdpen.launcher.ui.hourlyVividIndex
 import com.snsdpen.launcher.ui.themeOf
 import com.snsdpen.launcher.ui.nextTheme
 import com.snsdpen.launcher.ui.TaskDialog
@@ -107,8 +113,17 @@ fun LauncherApp(surface: Surface) {
 
     // メイン/カバーは smallestScreenWidthDp で判定(幅だと横向きカバーを誤判定する)
     val isWide = LocalConfiguration.current.smallestScreenWidthDp >= 600
-    val face = faceOf(surface, isWide)
+    val isLandscape = LocalConfiguration.current.screenWidthDp > LocalConfiguration.current.screenHeightDp
+    val face0 = faceOf(surface, isWide, isLandscape)
+    // メイン(開いた時)は左に MAIN(独立した配置。カバーと同じ形)、右に SIDE(窓の置き場)を並べる
+    val split = face0 == Face.MAIN
+    val face = face0
     val spec = gridFor(face)
+    // 選択中のモジュールがどちらのグリッドの物か(追加・削除の宛先)
+    var selectedFace by remember { mutableStateOf(Face.MAIN) }
+    // サイドパネルの画面上の矩形(px)。無ければ画面の右半分
+    var sideBounds by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    val activeFace = if (split) selectedFace else face
 
     // 復帰時: アプリ一覧を読み直し、外部データ(予定)の再読込を合図する
     var refreshTick by remember { mutableStateOf(0) }
@@ -120,6 +135,7 @@ fun LauncherApp(surface: Surface) {
     }
     // 権限リクエスト(Activity の上でだけ使える。オーバーレイ面では別経路が要る)
     val calendarPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refreshTick++ }
+    val btPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) com.snsdpen.launcher.data.toggleBluetooth(context) }
 
     var editMode by remember { mutableStateOf(false) }
     var selectedRef by remember { mutableStateOf<String?>(null) }
@@ -135,6 +151,8 @@ fun LauncherApp(surface: Surface) {
     var editPanelId by remember { mutableStateOf<String?>(null) }
     /** id 空 = 新規 */
     var labelDialog by remember { mutableStateOf<LabelDef?>(null) }
+    /** id 空 = 新規 */
+    var linkDialog by remember { mutableStateOf<LinkDef?>(null) }
     // 直前のページ移動の向き(アニメの向きに使う)
     var forward by remember { mutableStateOf(true) }
 
@@ -147,6 +165,18 @@ fun LauncherApp(surface: Surface) {
         when (e) {
             is ModuleEvent.OpenFolder -> openFolderId = e.id
             is ModuleEvent.Launch -> launchApp(context, e.app)
+            is ModuleEvent.LaunchInPane -> {
+                val dm = context.resources.displayMetrics
+                val pane = sideBounds ?: android.graphics.Rect(dm.widthPixels / 2, 0, dm.widthPixels, dm.heightPixels)
+                // 窓はアプリの行(panel)が並ぶ高さより下に出す。行が隠れず、押し直せる。残りが 4 割未満なら全面
+                val sideSpec = gridFor(Face.SIDE)
+                val gapPx = 4f * dm.density
+                val cellPx = (pane.height() - gapPx * (sideSpec.rows - 1)) / sideSpec.rows
+                val lowestPanelRow = layout?.placed(Face.SIDE, page).orEmpty().filter { r -> r.ref.startsWith("panel:") }.maxOfOrNull { r -> r.row + r.rowSpan } ?: 0
+                val top = pane.top + (lowestPanelRow * (cellPx + gapPx)).toInt()
+                val bounds = if (lowestPanelRow > 0 && pane.bottom - top >= pane.height() * 0.4f) android.graphics.Rect(pane.left, top, pane.right, pane.bottom) else pane
+                launchApp(context, e.app, bounds)
+            }
             is ModuleEvent.OpenIntent -> runCatching {
                 context.startActivity(e.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
@@ -154,8 +184,13 @@ fun LauncherApp(surface: Surface) {
             is ModuleEvent.EditBoard -> editBoardId = e.id
             is ModuleEvent.EditPanel -> editPanelId = e.id
             is ModuleEvent.EditLabel -> labelDialog = layout?.labels?.firstOrNull { it.id == e.id }
+            is ModuleEvent.EditLink -> linkDialog = layout?.links?.firstOrNull { it.id == e.id }
             is ModuleEvent.CycleMeter -> store.update { it.cycleMeterShade(e.id) }
             ModuleEvent.OpenNotifAccess -> NotifListener.openSettings(context)
+            ModuleEvent.ToggleBluetooth -> {
+                val granted = context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (granted) com.snsdpen.launcher.data.toggleBluetooth(context) else btPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+            }
             ModuleEvent.EnterEdit -> { editMode = true; selectedRef = null }
             ModuleEvent.OpenCalendar -> openCalendarApp(context)
             ModuleEvent.RequestCalendarPermission -> calendarPermission.launch(Manifest.permission.READ_CALENDAR)
@@ -176,19 +211,7 @@ fun LauncherApp(surface: Surface) {
     val openDrawer = rememberUpdatedState { drawerOpen = true }
 
     // ページの地色を補間し、白基調ではステータスバーのアイコンを黒にする
-    // VIVID の色の組: 1 時間ごとに変わる。■タップで手動シャッフル(次の時刻の変わり目まで有効)
-    var vividSet by remember { mutableStateOf(hourlyVividIndex()) }
-    var vividManual by remember { mutableStateOf<Int?>(null) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        var lastHour = hourlyVividIndex()
-        while (true) {
-            kotlinx.coroutines.delay(60_000)
-            val h = hourlyVividIndex()
-            if (h != lastHour) { lastHour = h; vividManual = null; vividSet = h }
-        }
-    }
-    val setIndex = vividManual ?: vividSet
-    val palette = paletteFor(page, themes[page], setIndex)
+    val palette = paletteFor(page, themes[page])
     val bg by animateColorAsState(palette.bg, tween(220), label = "bg")
     val view = LocalView.current
     SideEffect {
@@ -206,7 +229,8 @@ fun LauncherApp(surface: Surface) {
         Modifier
             .fillMaxSize()
             .background(bg)
-            .safeDrawingPadding(),
+            // IME は含めない(含めるとキーボードが出た瞬間にグリッド全体が縮む)
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)),
     ) {
         val state = layout ?: return@Box   // 読み込み前は背景のみ
         CompositionLocalProvider(LocalRefreshTick provides refreshTick) {
@@ -245,7 +269,7 @@ fun LauncherApp(surface: Surface) {
                 },
                 label = "page",
             ) { p ->
-                PageTheme(p, themes[p], setIndex) {
+                PageTheme(p, themes[p]) {
                 HomeScreen(
                     placed = state.resolved(face, p, surface),
                     spec = spec,
@@ -256,30 +280,34 @@ fun LauncherApp(surface: Surface) {
                     apps = apps,
                     editMode = editMode,
                     selectedRef = selectedRef,
-                    onSelect = { selectedRef = it },
+                    onSelect = { selectedRef = it; selectedFace = face },
                     onEnterEdit = { editMode = true; selectedRef = null },
                     onExitEdit = { editMode = false; selectedRef = null },
                     onAdd = { addSheet = true },
                     onRemoveSelected = {
-                        selectedRef?.let { ref -> store.update { it.removeRef(face, p, ref) } }
+                        selectedRef?.let { ref -> store.update { it.removeRef(activeFace, p, ref) } }
                         selectedRef = null
                     },
                     themeName = if ((ThemeOptions[p]?.size ?: 1) > 1) themeOf(p, themes[p]).name else null,
                     onCycleTheme = { store.setTheme(p, nextTheme(p, themes[p])) },
-                    canShuffle = themeOf(p, themes[p]).name == "VIVID",
-                    onShuffle = { vividManual = ((vividManual ?: vividSet) + 1 + (System.nanoTime() % (VividSets.size - 1)).toInt()).mod(VividSets.size) },
                     onOpenDrawer = { drawerOpen = true },
                     onEvent = onEvent,
                     notifCounts = notifCounts,
-                    onMove = { ref, pos -> store.update { it.moveRef(face, p, ref, pos) } },
-                    onSwap = { a, pa, b, pb -> store.update { it.swapRefs(face, p, a, pa, b, pb) } },
+                    onArrange = { refs -> store.update { it.withPlaced(face, p, refs) } },
                     onResize = { ref, w, h -> store.update { it.resizeRef(face, p, ref, w, h) } },
+                    side = if (split) HomePane(
+                        face = Face.SIDE, spec = gridFor(Face.SIDE), placed = state.resolved(Face.SIDE, p, surface),
+                        onSelect = { selectedRef = it; selectedFace = Face.SIDE },
+                        onArrange = { refs -> store.update { it.withPlaced(Face.SIDE, p, refs) } },
+                        onResize = { ref, w, h -> store.update { it.resizeRef(Face.SIDE, p, ref, w, h) } },
+                        onBounds = { sideBounds = it },
+                    ) else null,
                 )
                 }
             }
         }
 
-        PageTheme(page, themes[page], setIndex) {
+        PageTheme(page, themes[page]) {
         openFolderId?.let { id ->
             val folder = state.folders.firstOrNull { it.id == id }
             if (folder == null) {
@@ -338,14 +366,14 @@ fun LauncherApp(surface: Surface) {
                 onApp = { addSheet = false; pickAppFor = "new" },
                 onLabel = { addSheet = false; labelDialog = LabelDef("", "") },
                 onTile = { addSheet = false; tilePicker = true },
-                onBoard = { addSheet = false; store.update { it.addBoard(face, page, "BOARD") } },
+                onLink = { addSheet = false; linkDialog = LinkDef("", "", "") },
                 onClose = { addSheet = false },
             )
         }
 
         if (tilePicker) {
             MeterPickerSheet(
-                onPick = { m -> store.update { it.addMeter(face, page, m) }; tilePicker = false },
+                onPick = { m -> store.update { it.addMeter(activeFace, page, m) }; tilePicker = false },
                 onClose = { tilePicker = false },
             )
         }
@@ -369,7 +397,7 @@ fun LauncherApp(surface: Surface) {
             AppPickerSheet(
                 apps = apps,
                 onPick = { app ->
-                    if (target == "new") store.update { it.addPanel(face, page, app) }
+                    if (target == "new") store.update { it.addPanel(activeFace, page, app) }
                     else store.update { s -> s.panels.firstOrNull { it.id == target }?.let { s.updatePanel(it.copy(app = appKey(app))) } ?: s }
                     pickAppFor = null
                 },
@@ -377,11 +405,22 @@ fun LauncherApp(surface: Surface) {
             )
         }
 
+        linkDialog?.let { def ->
+            LinkDialog(
+                initial = def,
+                onSave = { l ->
+                    if (def.id.isBlank()) store.update { it.addLink(activeFace, page, l) } else store.update { it.updateLink(l) }
+                    linkDialog = null
+                },
+                onCancel = { linkDialog = null },
+            )
+        }
+
         labelDialog?.let { def ->
             LabelDialog(
                 initial = def,
                 onSave = { text ->
-                    if (def.id.isBlank()) store.update { it.addLabel(face, page, text) }
+                    if (def.id.isBlank()) store.update { it.addLabel(activeFace, page, text) }
                     else store.update { it.updateLabel(def.copy(text = text)) }
                     labelDialog = null
                 },

@@ -5,6 +5,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -31,15 +33,19 @@ data class Palette(
     val blocks: List<Color> = emptyList(),
     /** 空のブロックの色。null なら文字色を 15% で透かす */
     val blockEmpty: Color? = null,
-    /** 空きマスを歩く差し色ブロックの色。空なら歩かない(2 個が 1 マスずつ動き、跡がグレーで残る) */
+    /** 空きマスを歩く差し色ブロックの色。空なら歩かない(1 個が 1 マスずつ動き、跡がグレーで残る) */
     val vacantAccents: List<Color> = emptyList(),
     /** アプリのアイコンをグレースケールで描く */
     val monoIcons: Boolean = false,
     /** 見出しを色チップにする(ラベルごとにハッシュで色を選ぶ)。空なら文字だけ */
     val labelChips: List<Color> = emptyList(),
+    /** 計測ブロックの色(BAT/SIG/WIFI/BT)。色相は全配色で共通、色味だけ地に合わせる。空なら MeterFixedColors */
+    val meterColors: Map<String, Color> = emptyMap(),
+    /** 床のモザイク。全マスの後ろに単色ブロックを敷き、上→下で段を選ぶ(先頭が上。少し揺らぐ)。うっすらで良い。空なら敷かない */
+    val floor: List<Color> = emptyList(),
 )
 
-/** WORK: 暖かい白基調・黒文字 */
+/** WORK: 暖かい白基調・黒文字。アイコンもモノクロ */
 val WorkPalette = Palette(
     bg = Color(0xFFF7F5F0),
     fg = Color(0xFF1A1A1A),
@@ -47,6 +53,7 @@ val WorkPalette = Palette(
     line = Color(0xFFD9D4CA),
     accent = Color(0xFF1A1A1A),
     isLight = true,
+    monoIcons = true,   // 白・黒・グレーの紙面に合わせてアイコンもモノクロ
 )
 
 /** DRIVE: 濃紺の地に高コントラストの系列色。運転中に読める明るさを優先 */
@@ -64,50 +71,81 @@ val DrivePalette = Palette(
     ),
 )
 
-/** PRIVATE: 黒・白・グレーの地に、色の組(VividSets)を差す。組は 1 時間ごと、または■タップで回る */
-val VividPalette = Palette(
-    bg = Color(0xFF141414),
-    fg = Color(0xFFFFFFFF),
-    fgDim = Color(0xFF9A9A9A),
-    line = Color(0xFF2C2C2C),
-    accent = Color(0xFFF2542D),   // 組で上書きされる(withAccents)
-    series = listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFFF7C948)),
-    blocks = listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFF9A9A9A), Color(0xFF666666), Color(0xFFF2542D)),
-    blockEmpty = Color(0x1FFFFFFF),
-    vacantAccents = listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFFF7C948)),
-    monoIcons = false,   // アイコンは色付きのまま(モノクロは直感的でなかった)
-    labelChips = listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFFF7C948)),
-)
-
-/** PRIVATE の 2 つ目: 深い緑の地に生成りの文字、マスタードのアクセント。夜向き */
-val ForestPalette = Palette(
-    bg = Color(0xFF1E3A32),
-    fg = Color(0xFFF1EBDD),
-    fgDim = Color(0xFF9DB3A5),
-    line = Color(0xFF2F5247),
-    accent = Color(0xFFE0B04F),   // マスタード
+/** PRIVATE: NATURE。深い青緑の海の地に白い文字、青緑(AOMIDORI)と海の青が差し色。夜の紺も少し */
+val NaturePalette = Palette(
+    bg = Color(0xFF0F2A33),
+    fg = Color(0xFFF2F4F3),
+    fgDim = Color(0xFF7FA3A8),
+    line = Color(0xFF1D3F49),
+    accent = Color(0xFF00AA90),   // 青緑
     series = listOf(
-        Color(0xFFE0B04F),        // マスタード
-        Color(0xFFC9703F),        // 銅
-        Color(0xFF8FB39A),        // セージ
-        Color(0xFFF1EBDD),        // 生成り
+        Color(0xFF00AA90),        // 青緑
+        Color(0xFF2E7FD6),        // 海の青
+        Color(0xFF3FC1C9),        // 浅い青緑
+        Color(0xFFA9D6DC),        // 霞んだ水色
     ),
     blocks = listOf(
-        Color(0xFFE0B04F),        // 0 BAT マスタード
-        Color(0xFF8FB39A),        // 1 WIFI セージ
-        Color(0xFFC9703F),        // 2 SIG 銅
-        Color(0xFF4F7A68),        // 3 MEM 緑
-        Color(0xFF3B6252),        // 4 STO 深い緑
-        Color(0xFFD65A3A),        // 5 NTF 錆(要注意)
+        Color(0xFF00AA90),        // 0 BAT (固定色で上書きされる)
+        Color(0xFF3FC1C9),        // 1 WIFI 浅い青緑
+        Color(0xFF2E7FD6),        // 2 SIG 海の青
+        Color(0xFF1F5A66),        // 3 MEM 深い青緑
+        Color(0xFF173F4A),        // 4 STO もっと深い青緑
+        Color(0xFF8E2F4A),        // 5 NTF 夜の紅(要注意)
+        Color(0xFFA9D6DC),        // 6 BT 霞んだ水色
     ),
     blockEmpty = Color(0x1FFFFFFF),
+    vacantAccents = listOf(Color(0xFF00AA90), Color(0xFF2E7FD6)),
+    labelChips = listOf(Color(0xFF00AA90), Color(0xFF2E7FD6), Color(0xFF3FC1C9)),
+    floor = listOf(Color(0xFF15333D), Color(0xFF122E38), Color(0xFF0F2A33), Color(0xFF0D262E), Color(0xFF0B2129)),   // 上が明るく下が濃い
+    meterColors = mapOf(
+        "battery" to Color(0xFF8FD35A),    // 苔の黄緑
+        "signal" to Color(0xFF9F86D2),     // 藤紫
+        "wifi" to Color(0xFFDDC45A),       // 枯れた黄
+        "bluetooth" to Color(0xFF5FAFD3),  // 海の水色
+    ),
+)
+
+/** PRIVATE の 2 つ目: LEMON。Ultimate Gray の紙に Illuminating の黄。文字は鉄色。昼向きの明るいモード */
+val LemonPalette = Palette(
+    bg = Color(0xFFC5C1C0),       // SCREEN
+    fg = Color(0xFF0A1612),       // STEEL
+    fgDim = Color(0xFF5C6164),
+    line = Color(0xFFA9A6A4),
+    accent = Color(0xFFF5DF4D),   // ILLUMINATING
+    series = listOf(
+        Color(0xFFF5DF4D),        // 黄
+        Color(0xFF1A2930),        // DENIM
+        Color(0xFF0A1612),        // STEEL
+        Color(0xFF8A8785),        // 濃いグレー
+    ),
+    isLight = true,
+    blocks = listOf(
+        Color(0xFFF5DF4D),        // 0 BAT (固定色で上書きされる)
+        Color(0xFFF5DF4D),        // 1 WIFI 黄
+        Color(0xFF1A2930),        // 2 SIG DENIM
+        Color(0xFFDEDCDA),        // 3 MEM 薄いグレー
+        Color(0xFF8A8785),        // 4 STO 濃いグレー
+        Color(0xFFFF7A00),        // 5 NTF オレンジ(要注意)
+        Color(0xFF0A1612),        // 6 BT STEEL
+    ),
+    blockEmpty = Color(0x14000000),
+    vacantAccents = listOf(Color(0xFFF5DF4D), Color(0xFF1A2930)),
+    monoIcons = false,   // アイコンは色付きのまま
+    labelChips = listOf(Color(0xFFF5DF4D)),
+    floor = listOf(Color(0xFFCFCCCA), Color(0xFFCAC7C5), Color(0xFFC5C1C0), Color(0xFFBCB9B7), Color(0xFFB3B0AE)),   // 上が明るく下が濃い(うっすら)
+    meterColors = mapOf(
+        "battery" to Color(0xFF9DC84A),    // 若草
+        "signal" to Color(0xFFA995CF),     // 薄い藤
+        "wifi" to Color(0xFFE6CC55),       // ILLUMINATING 寄りの黄
+        "bluetooth" to Color(0xFF7AB6D4),  // 曇りの水色
+    ),
 )
 
 /** ページごとの色味の候補。先頭が既定。フッターのページ名タップで順に切り替わる */
 data class ThemeOption(val name: String, val palette: Palette)
 
 val ThemeOptions: Map<Page, List<ThemeOption>> = mapOf(
-    Page.PRIVATE to listOf(ThemeOption("VIVID", VividPalette), ThemeOption("FOREST", ForestPalette)),
+    Page.PRIVATE to listOf(ThemeOption("NATURE", NaturePalette), ThemeOption("LEMON", LemonPalette)),
     Page.WORK to listOf(ThemeOption("WHITE", WorkPalette)),
     Page.DRIVE to listOf(ThemeOption("NAVY", DrivePalette)),
 )
@@ -126,14 +164,14 @@ fun nextTheme(page: Page, variant: String?): String {
     return list[(i + 1) % list.size].name
 }
 
-val LocalPalette = staticCompositionLocalOf { VividPalette }
+val LocalPalette = staticCompositionLocalOf { NaturePalette }
 
 val GridGap = 4.dp
 
 /** ページのパレットを配る。Text の既定色も合わせる */
 @Composable
-fun PageTheme(page: Page, variant: String? = null, setIndex: Int = 0, content: @Composable () -> Unit) {
-    val p = paletteFor(page, variant, setIndex)
+fun PageTheme(page: Page, variant: String? = null, content: @Composable () -> Unit) {
+    val p = paletteFor(page, variant)
     val scheme = if (p.isLight) {
         lightColorScheme(background = p.bg, surface = p.bg, onBackground = p.fg, onSurface = p.fg, primary = p.accent)
     } else {
@@ -149,10 +187,10 @@ fun PageTheme(page: Page, variant: String? = null, setIndex: Int = 0, content: @
 fun LauncherTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            background = VividPalette.bg,
-            surface = VividPalette.bg,
-            onBackground = VividPalette.fg,
-            onSurface = VividPalette.fg,
+            background = NaturePalette.bg,
+            surface = NaturePalette.bg,
+            onBackground = NaturePalette.fg,
+            onSurface = NaturePalette.fg,
         ),
         content = content,
     )
@@ -168,41 +206,6 @@ fun stableHash(vararg parts: Int): Int {
     return (h xor (h ushr 16)) and 0x7FFFFFFF
 }
 
-// ---- VIVID の色の組(時間や操作で回る) ----
-
-data class AccentSet(val name: String, val colors: List<Color>)
-
-/** 4 色: [0] アクセント(通知の件数・BAT) [1] WIFI [2] SIG [3] 差し色。チップとモザイクは 4 色を順に */
-val VividSets: List<AccentSet> = listOf(
-    AccentSet("SUMMER", listOf(Color(0xFFF2542D), Color(0xFF2EAADC), Color(0xFFB4D335), Color(0xFFF7C948))),
-    AccentSet("TROPICAL", listOf(Color(0xFF1FA7A0), Color(0xFFFFD23F), Color(0xFFFF6B6B), Color(0xFFF26430))),
-    AccentSet("SUNSET", listOf(Color(0xFFFF7A5A), Color(0xFFFFB347), Color(0xFFC44569), Color(0xFF6C4AB6))),
-    AccentSet("CITRUS", listOf(Color(0xFFF9C80E), Color(0xFFF86624), Color(0xFFEA3546), Color(0xFF43BCCD))),
-    AccentSet("VAPOR", listOf(Color(0xFFFF77A9), Color(0xFF9D4EDD), Color(0xFFC8B6FF), Color(0xFF8ECAE6))),
-    AccentSet("RETRO", listOf(Color(0xFFE63946), Color(0xFFF1FAEE), Color(0xFFA8DADC), Color(0xFF457B9D))),
-)
-
-/** 今の時刻から決まる組の番号(1 時間ごとに変わる。同じ時間帯は同じ) */
-fun hourlyVividIndex(): Int {
-    val now = java.time.LocalDateTime.now()
-    return ((now.toLocalDate().toEpochDay() * 24 + now.hour) % VividSets.size).toInt().let { if (it < 0) it + VividSets.size else it }
-}
-
-/** VIVID の地に色の組を当てる */
-fun Palette.withAccents(set: AccentSet): Palette = copy(
-    accent = set.colors[0],
-    series = set.colors,
-    blocks = listOf(set.colors[0], set.colors[1], set.colors[2], Color(0xFF9A9A9A), Color(0xFF666666), set.colors[0]),
-    vacantAccents = set.colors,
-    labelChips = set.colors,
-)
-
-/** ページの配色。VIVID なら色の組(setIndex)を当てる */
-fun paletteFor(page: Page, variant: String?, setIndex: Int): Palette {
-    val opt = themeOf(page, variant)
-    return if (opt.name == "VIVID") opt.palette.withAccents(VividSets[setIndex.mod(VividSets.size)]) else opt.palette
-}
-
 /**
  * 表示中(RESUMED)のあいだだけ [block] を回す。裏に回ると止まり、戻ると最初からやり直す。
  * 時計の秒・歩くブロック・計測の読み直しはこれで包む(引き継ぎの罠 17: 常時アニメは表示中のみ)。
@@ -214,3 +217,46 @@ fun WhileResumed(vararg keys: Any?, block: suspend () -> Unit) {
         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) { block() }
     }
 }
+
+
+/** デバッグ: true にすると未読が無くても点滅する(動作確認用。本番は false) */
+const val BLINK_DEBUG = false
+/** true にするとカバーのアプリも右半分のポップアップで開く(自由配置ウィンドウの動作確認用) */
+const val POPUP_DEBUG = false
+
+/**
+ * 通知の点滅。active のとき 1 ↔ 0.35 を 0.7 秒で往復する透け。
+ * ページが表示中のときだけ合成されるので、裏では動かない。
+ */
+@Composable
+fun blinkAlpha(active: Boolean): Float {
+    if (!active && !BLINK_DEBUG) return 1f
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "blink")
+    val a by t.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.35f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(700, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "a",
+    )
+    return a
+}
+
+// ---- 全配色で固定の色 ----
+/** 電池: 蛍光グリーン。白い紙面では濃い緑 */
+fun batteryColor(p: Palette): Color = meterColor(p, "battery")
+/** 計測の色: 配色に表があればそれ、無ければ固定色 */
+fun meterColor(p: Palette, metric: String): Color = p.meterColors[metric] ?: MeterFixedColors.getValue(metric)
+/** 充電中: 黄。白い紙面では濃い黄 */
+fun chargeColor(p: Palette): Color = if (p.isLight) Color(0xFFC99A00) else Color(0xFFFFD400)
+/** 計測ブロックの色は全配色で固定(明るく、互いに区別が付く 4 色) */
+val MeterFixedColors: Map<String, Color> = mapOf(
+    "battery" to Color(0xFFA6FF2E),    // 蛍光の黄緑
+    "wifi" to Color(0xFFFFE84A),       // 黄
+    "signal" to Color(0xFFC77DFF),     // 紫
+    "bluetooth" to Color(0xFF4FC3F7),  // 水色
+)
+/** 通知: オレンジ(アイコンのマスが明滅する) */
+val NotifOrange = Color(0xFFFF7A00)

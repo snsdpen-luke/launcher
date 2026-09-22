@@ -32,19 +32,26 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 19)
   - サイズは Face で引く、出せるかは Surface で引く
   - 参照キー: `"clock"` / `"folder:<id>"`。表示名を変えてもキーは変えない
 - グリッド(ui/ModuleGrid.kt): 絶対セル配置。タップ/長押し/ドラッグ/入替/リサイズはラッパーが一元処理。モジュール本体は受動
-- グリッド寸法: カバー **16x24** / メイン 22x14(model/Surface.kt、v9)。**マスは正方形**で一辺は幅から決める(カバー 555x876dp → 1 マス ≈ 30dp)。余りは下に残す
+  - ドロップは `resolveDrop`(model/Grid.kt): 枠内に丸め → そのまま → 1 個と入替 → 2 マス以内の空きへ寄せる → 重なる物を空きへ押しのける。ドラッグ中に落とし先の枠(入る = アクセント、入らない = 赤)
+- 面 `Face { COVER, MAIN, COVER_WIDE, SIDE }`。COVER = カバー縦 16x24 / COVER_WIDE = カバー横 26x15(マスの大きさは縦と同じ。配置は独立、初回は縦の配置を幅 8 の縦の帯に流して生成 `packInto`) / MAIN = 開いた時の**左パネル**。カバーと同じ 16x24 だが**配置は独立**(v24、初回はカバーの写し。大画面で見たい物だけ残す) / SIDE = 開いた時の右側 14x24。**窓の置き場**で、空いている時は予定 + タスク(`seedSide`)。`HomeScreen(side = HomePane)` で 2 枚並べる。`faceOf(surface, isWide, isLandscape)`。メインで選択・追加・削除の宛先は `selectedFace`
+- **他アプリを「隣」に出す**: ホームは分割画面の相棒になれない(`type=home nonResizable`、LAUNCH_ADJACENT も全画面になる。実機で確認済み 2026-09-22)。代わりに Samsung の自由配置(ポップアップ)ウィンドウを使う: **MAIN(左)か SIDE(右)のアプリをタップ** → `ModuleEvent.LaunchInPane` → `launchApp(context, app, bounds)` が `ActivityOptions.setLaunchBounds` で **右側(SIDE の矩形、`HomePane.onBounds`)に窓を出す**。SIDE にアプリ行があればその下から。ランチャーは背景に残る。カバーでは全画面起動。`POPUP_DEBUG = true` でカバーでも右半分に出して確認できる
+- グリッド寸法: カバー **16x24** / メイン 22x14(model/Surface.kt、v9)。**マスは正方形**で一辺は幅と高さの小さい方から決める(カバー 555x876dp → 1 マス ≈ 28.5dp)。**マス目全体は左右中央**に置き、余りは両側の余白(半端なマスは作らない)
 - ページ `Page { PRIVATE, WORK, DRIVE }`。配置は (Face, Page) ごと、定義(フォルダ/リンク/ボード)は共有
 - 配色はページごとの `Palette`(ui/Theme.kt)。画面もモジュールも `LocalPalette.current` を読む
   - 1 ページに複数の色味を持てる(`ThemeOptions`)。フッター右のページ名タップで順に切替、選択は DataStore の `theme_<PAGE>`
-  - PRIVATE は VIVID(黒の地に色の組 `VividSets` が 1 時間ごと・■タップで回る。見出しは色チップ、空きマスを差し色のブロック 2 個が歩く(跡がグレーで消える)。アイコンは色付き) → FOREST(深緑)。BLACK・CREAM・紺の COLORFUL は不採用
+  - PRIVATE は **NATURE**(深い青緑の海の地に白文字、青緑 #00AA90 と海の青が差し色。既定)→ **LEMON**(Ultimate Gray #C5C1C0 の紙に鉄色の文字、Illuminating #F5DF4D のチップ、DENIM #1A2930 が 2 色目。昼向き。白地は「ブロックが目立つ」で不採用)。どちらも見出しは**床のブロックと同じ形のチップ**(1 マスずつ独立したブロックで目地を見せる。幅は文字に合わせてマス数を切り上げ、`labelChips` の色を 40% で透かす。文字はその上に fg で)、空きマスをマスコットが歩く。アイコンは色付き。VIVID(色の組の時間回転と■シャッフル)・FOREST・BLACK・CREAM・紺の COLORFUL は不採用(2026-09-22)
+  - **床のモザイク**は `Palette.floor`(上→下で明→暗の単色 5 段。うっすら)。ModuleGrid の `MosaicFloor` が全マスの後ろに 1 マス 1 ブロックで敷く(マス目ぴったり。余りは余白)。`stableHash` で 1 段だけ揺れ、**30 秒に 1 回マスの 1/4 を選び直して 0.6 秒でにじむ**(表示中のみ)。ブロック自体は単色(1 個ずつのグラデーションは不採用)
+  - 空きマスを歩くのは **Claude Code のマスコット**(ui/Mascot.kt `ClaudeMark`、ドット絵を自前で描く。本体は `vacantAccents[0]`、目は暗い方の色)。1 体だけ。跡が薄く残る
   - 演出は `Palette` のフィールドで切る: `monoIcons` / `labelChips` / `vacantAccents`(歩くブロック)。位置や順番で決まる擬似乱数 `stableHash`(起動のたびに変わらない)
   - 色味を足す = `Palette` を 1 個書いて `ThemeOptions` に 1 行
-- アプリは `PanelDef`(`panel:<id>`、アイコン + 名前の 1 行)、見出しは `LabelDef`(`label:<id>`)。編集フッターの `+ ADD` から APP / LABEL / BOARD
+- アプリは `PanelDef`(`panel:<id>`、1 行。アイコンは 1 マスいっぱい = 床のブロックと同じ大きさ、名前は 11sp でアイコンの下辺に揃える)、見出しは `LabelDef`(`label:<id>`)。編集フッターの `+ ADD` から APP / LABEL / BOARD
 - PRIVATE の初期配置は model/Layout.kt の `PrivateSeed`(パッケージ名の表)。端末にあるものだけ置く
-- 床のタイルは `MeterDef`(`meter:<id>`、metric = battery/wifi/signal/memory/storage/notif/blank)。1 マス = 1 ブロックで、値は埋まったブロックの数。色は **配色の `Palette.blocks`**(番号 0..5 = BAT WIFI SIG MEM STO NTF、`meterShadeFor`)。文字は色の明るさで白/濃紺を自動。編集で再タップ = 色を回す
-- ステータスバーは MainActivity で隠している(上端スワイプで一時表示)。代わりが床の WIFI/SIG/BAT と NTF、パネルの件数。通知件数は notif/NotifListener(通知アクセスを設定でオン、復帰時に requestRebind)
-- リンクは `BoardDef`(ボード)にまとめて `board:<id>` モジュールで表示。追加経路は 2 つ:
-  編集シート(BoardEditSheet)と共有シート(`ShareActivity`、ACTION_SEND text/plain)
+- 時計は **1 行**(既定 8x1、最小 6x1)。時刻の数字の高さをモジュールの高さ(= マス)の 75% に(`TimeHeight`)、下辺をマスの下辺に合わせ、秒・日付・曜日を右にベースライン揃えで並べる。Text ではなく `TextMeasurer` + `drawText` で自分で描く(フォントの上下余白でマス目とずれるのを避ける。Roboto の数字の高さ = 0.711em)。v18 で既存の時計を 1 行に詰めた
+- 計測は `MeterDef`(`meter:<id>`、metric = battery/wifi/signal/bluetooth/memory/storage/notif/blank)。**2 マスの BAT/WIFI/SIG/BT は左右 2 つの独立したマス**: BAT は 51% 以上で 2 つ点灯、50% 以下で左だけ、20% 以下オレンジ、10% 以下赤、充電中は黄。WIFI/SIG/BT は左が強さ(濃さ)、右がスイッチ(ON/OFF/DATA。タップで Wi-Fi パネル / インターネットパネル / BT の確認ダイアログ。アプリから直接は切れない、BLUETOOTH_CONNECT を初回に要求)。右マスの `clickable` は編集中は外す。3 マス以上はブロック数、1 マスは濃さ。**色相は全配色で共通**(BAT 黄緑 / SIG 紫 / WIFI 黄 / BT 水色)、色味は `Palette.meterColors` で地に合わせる(無ければ `MeterFixedColors`)。`meterColor(p, metric)` で引く。`MeterDef.style = "text"` は数字と ON/OFF の文字表示(WORK。タップで同じスイッチ)。NTF/MEM/STO のブロックは v16 で消した(文字表示は残る)。並びは v17 で BAT | SIG | WIFI | BT。編集で再タップ = 色を回す(固定色の 4 つには効かない)
+- 通知の明滅は **アイコンの後ろの 1 マス**(`ModuleScope.cell`)を `NotifOrange` で塗って `blinkAlpha`。アイコンと件数の文字は明滅しない。確認は `BLINK_DEBUG = true` で全マスを光らせる(実機は QuietInbox が通知を握るので件数が 0 のまま)
+- ステータスバーは MainActivity で隠している(上端スワイプで一時表示)。代わりが床の WIFI/SIG/BAT と NTF、パネルの件数。通知件数は notif/NotifListener(通知アクセスを設定でオン、復帰時に requestRebind)。未読があるとアイコン・件数・NTF が明滅(`blinkAlpha`、`BLINK_DEBUG = true` で強制点滅して動作確認)
+- リンクは `LinkDef` を `link:<id>` モジュールで 1 本ずつ画面に置く(半幅 1 行。タップで開く、編集で名前と URL)。追加は `+ ADD → LINK` か共有シート(`ShareActivity`、ACTION_SEND text/plain → 両面の WORK に置く)
+  - ボード(`board:<id>`)は v15 で廃止。コードは残っているが + ADD からは足せない。既存のボードは中身を link に展開済み
 
 ## 絶対に守る
 - レイアウトのグリッド構造・既定サイズを変えたら LAYOUT_VERSION を上げて migrateLayout に移行ステップを足す

@@ -36,7 +36,7 @@ val BoardSpec = ModuleSpec(
     name = "BOARD",
     singleton = false,
     defaultSize = { face -> if (face == Face.COVER) Span(8, 10) else Span(8, 8) },
-    minSize = { Span(6, 3) },
+    minSize = { Span(4, 2) },
     exists = { layout, id -> layout.boards.any { it.id == id } },
     // 空のボードは枠タップで編集へ。リンクがあれば行が受けるので枠は何もしない
     onTap = { scope, emit ->

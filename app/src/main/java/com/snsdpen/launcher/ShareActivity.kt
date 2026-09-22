@@ -33,14 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.snsdpen.launcher.data.domainOf
-import com.snsdpen.launcher.model.BoardDef
 import com.snsdpen.launcher.model.LinkDef
 import com.snsdpen.launcher.model.Page
-import com.snsdpen.launcher.model.addBoardOnWork
+import com.snsdpen.launcher.model.addLinkOnWork
 import com.snsdpen.launcher.model.parseSharedLink
-import com.snsdpen.launcher.model.upsertLink
 import com.snsdpen.launcher.ui.LocalPalette
-import com.snsdpen.launcher.ui.Marker
 import com.snsdpen.launcher.ui.PageTheme
 import com.snsdpen.launcher.ui.TextLink
 
@@ -67,14 +64,9 @@ class ShareActivity : ComponentActivity() {
                 val state = layout ?: return@PageTheme
                 ShareSheet(
                     link = link,
-                    boards = state.boards,
-                    onSave = { boardId, l ->
-                        store.update { s ->
-                            if (boardId != null) s.upsertLink(boardId, l)
-                            else s.addBoardOnWork("LINKS").let { (s2, id) -> s2.upsertLink(id, l) }
-                        }
-                        val name = state.boards.firstOrNull { it.id == boardId }?.name ?: "LINKS"
-                        Toast.makeText(this, "$name に追加", Toast.LENGTH_SHORT).show()
+                    onSave = { l ->
+                        store.update { s -> s.addLinkOnWork(l) }
+                        Toast.makeText(this, "WORK に追加", Toast.LENGTH_SHORT).show()
                         finish()
                     },
                     onCancel = { finish() },
@@ -87,14 +79,11 @@ class ShareActivity : ComponentActivity() {
 @Composable
 private fun ShareSheet(
     link: LinkDef,
-    boards: List<BoardDef>,
-    onSave: (boardId: String?, link: LinkDef) -> Unit,
+    onSave: (link: LinkDef) -> Unit,
     onCancel: () -> Unit,
 ) {
     val p = LocalPalette.current
     var name by remember { mutableStateOf(link.name) }
-    // 既定は先頭のボード。1 枚も無ければ null(= 新設)
-    var selected by remember { mutableStateOf(boards.firstOrNull()?.id) }
 
     Box(
         Modifier
@@ -128,39 +117,16 @@ private fun ShareSheet(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp, start = 4.dp),
             )
-            Spacer(Modifier.height(12.dp))
-            Text("BOARD", color = p.fgDim, fontSize = 11.sp)
-            if (boards.isEmpty()) {
-                BoardRow(name = "LINKS(新規)", selected = true, marker = p.fg) { selected = null }
-            }
-            boards.forEach { b ->
-                BoardRow(name = b.name, selected = selected == b.id, marker = p.fg) { selected = b.id }
-            }
+            Spacer(Modifier.height(4.dp))
+            Text("WORK ページに 1 行として置く", color = p.fgDim, fontSize = 10.sp, modifier = Modifier.padding(start = 4.dp))
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
                 TextLink("CANCEL", p.fgDim, onCancel)
                 TextLink("SAVE", p.accent) {
                     val n = name.trim().ifBlank { domainOf(link.url) }
-                    onSave(selected, link.copy(name = n))
+                    onSave(link.copy(name = n))
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun BoardRow(name: String, selected: Boolean, marker: Color, onClick: () -> Unit) {
-    val p = LocalPalette.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // 選択中は塗り、未選択は薄い■
-        Marker(if (selected) marker else p.line)
-        Spacer(Modifier.width(10.dp))
-        Text(name, color = if (selected) p.fg else p.fgDim, fontSize = 13.sp)
     }
 }

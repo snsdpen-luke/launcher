@@ -44,7 +44,9 @@ fun readWifi(context: Context): Metric {
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
     val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
     val onWifi = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
-    if (!onWifi) return Metric(0, "OFF")
+    @Suppress("DEPRECATION")
+    if (!wm.isWifiEnabled) return Metric(0, "OFF")
+    if (!onWifi) return Metric(0)
     @Suppress("DEPRECATION")
     val rssi = runCatching { wm.connectionInfo.rssi }.getOrDefault(-127)
     val max = wm.maxSignalLevel.coerceAtLeast(1)
@@ -58,3 +60,33 @@ fun readSignal(context: Context): Metric {
     val level = runCatching { tm.signalStrength?.level }.getOrNull() ?: return Metric(0, "OFF")
     return Metric((level.coerceIn(0, 4)) * 100 / 4)
 }
+
+/** Bluetooth: オフ 0 / オン 50 / 音声機器が繋がっている 100。権限は要らない */
+fun readBluetooth(context: Context): Metric {
+    val bm = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+    val enabled = runCatching { bm?.adapter?.isEnabled == true }.getOrDefault(false)
+    if (!enabled) return Metric(0, "OFF")
+    val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+    val connected = am?.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)?.any {
+        it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER
+    } == true
+    return if (connected) Metric(100, "LINK") else Metric(50, "ON")
+}
+
+/**
+ * Bluetooth の切り替え。Android 13 以降はアプリから直接オン/オフできないので、
+ * システムの確認ダイアログ(REQUEST_ENABLE / REQUEST_DISABLE)を出す。BLUETOOTH_CONNECT が要る
+ */
+fun toggleBluetooth(context: Context) {
+    val bm = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+    val enabled = runCatching { bm?.adapter?.isEnabled == true }.getOrDefault(false)
+    val action = if (enabled) "android.bluetooth.adapter.action.REQUEST_DISABLE" else android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE
+    runCatching { context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+}
+
+/** システムの Wi-Fi パネル(画面下の小さなシート。スイッチ付き) */
+fun wifiPanelIntent(): Intent = Intent(android.provider.Settings.Panel.ACTION_WIFI)
+
+/** システムのインターネット接続パネル(モバイルデータと Wi-Fi のスイッチ) */
+fun internetPanelIntent(): Intent = Intent(android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY)

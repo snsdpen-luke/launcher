@@ -7,6 +7,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +40,18 @@ import com.snsdpen.launcher.model.Surface
  * 1 ページ分のグリッド + フッター(ドロワーのハンドル / 編集モードの DONE / ページ名)。
  * ページ切替と上スワイプのジェスチャは LauncherApp 側で受ける。
  */
+/** 2 枚目のグリッド(メインの空いた側)。面と配置と書き戻しを 1 組で渡す */
+data class HomePane(
+    val face: Face,
+    val spec: GridSpec,
+    val placed: List<PlacedRef>,
+    val onSelect: (String?) -> Unit,
+    val onArrange: (List<PlacedRef>) -> Unit,
+    val onResize: (String, Int, Int) -> Unit,
+    /** パネルの画面上の矩形(px)。アプリをこの位置のポップアップで開くのに使う */
+    val onBounds: (android.graphics.Rect) -> Unit = {},
+)
+
 @Composable
 fun HomeScreen(
     placed: List<PlacedRef>,
@@ -56,19 +72,42 @@ fun HomeScreen(
     themeName: String?,
     onCycleTheme: () -> Unit,
     /** 色の組をシャッフルできる配色なら true(フッター右に■を出す) */
-    canShuffle: Boolean = false,
-    onShuffle: () -> Unit = {},
     onOpenDrawer: () -> Unit,
     onEvent: (ModuleEvent) -> Unit,
     notifCounts: Map<String, Int> = emptyMap(),
-    onMove: (String, GridPos) -> Unit,
-    onSwap: (String, GridPos, String, GridPos) -> Unit,
+    onArrange: (List<PlacedRef>) -> Unit,
     onResize: (String, Int, Int) -> Unit,
+    /** メイン(開いた時): 左にカバー縦の配置そのまま、右にこのパネル */
+    side: HomePane? = null,
     modifier: Modifier = Modifier,
 ) {
     val p = LocalPalette.current
     Column(modifier.fillMaxSize().background(p.bg)) {
-        ModuleGrid(
+        if (side != null) {
+            // カバー縦のマス目を高さいっぱいに置き、残りの幅を側パネルに
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                val cell = ((maxHeight - com.snsdpen.launcher.ui.GridGap * (spec.rows - 1)) / spec.rows).coerceAtLeast(0.dp)
+                val coverW = cell * spec.cols + com.snsdpen.launcher.ui.GridGap * (spec.cols - 1)
+                Row(Modifier.fillMaxSize()) {
+                    ModuleGrid(
+                        placed = placed, spec = spec, face = face, page = page, surface = surface, layout = layout, apps = apps,
+                        editMode = editMode, selectedRef = selectedRef, onSelect = onSelect, onEnterEdit = onEnterEdit, onEvent = onEvent,
+                        notifCounts = notifCounts, onArrange = onArrange, onResize = onResize,
+                        modifier = Modifier.width(coverW).fillMaxHeight(),
+                    )
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(16.dp))
+                    ModuleGrid(
+                        placed = side.placed, spec = side.spec, face = side.face, page = page, surface = surface, layout = layout, apps = apps,
+                        editMode = editMode, selectedRef = selectedRef, onSelect = side.onSelect, onEnterEdit = onEnterEdit, onEvent = onEvent,
+                        notifCounts = notifCounts, onArrange = side.onArrange, onResize = side.onResize,
+                        modifier = Modifier.weight(1f).fillMaxHeight().onGloballyPositioned { c ->
+                            val b = c.boundsInWindow()
+                            side.onBounds(android.graphics.Rect(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt()))
+                        },
+                    )
+                }
+            }
+        } else ModuleGrid(
             placed = placed,
             spec = spec,
             face = face,
@@ -82,8 +121,7 @@ fun HomeScreen(
             onEnterEdit = onEnterEdit,
             onEvent = onEvent,
             notifCounts = notifCounts,
-            onMove = onMove,
-            onSwap = onSwap,
+            onArrange = onArrange,
             onResize = onResize,
             modifier = Modifier
                 .weight(1f)
@@ -92,7 +130,7 @@ fun HomeScreen(
         )
         Footer(
             page = page, editMode = editMode, hasSelection = selectedRef != null,
-            themeName = themeName, onCycleTheme = onCycleTheme, canShuffle = canShuffle, onShuffle = onShuffle,
+            themeName = themeName, onCycleTheme = onCycleTheme,
             onOpenDrawer = onOpenDrawer, onExitEdit = onExitEdit, onAdd = onAdd, onRemoveSelected = onRemoveSelected,
         )
     }
@@ -109,8 +147,6 @@ private fun Footer(
     onRemoveSelected: () -> Unit,
     themeName: String? = null,
     onCycleTheme: () -> Unit = {},
-    canShuffle: Boolean = false,
-    onShuffle: () -> Unit = {},
 ) {
     val p = LocalPalette.current
     val openDrawer = rememberUpdatedState(onOpenDrawer)
@@ -151,14 +187,6 @@ private fun Footer(
                         .padding(horizontal = 24.dp, vertical = 8.dp),
                 )
             }
-        }
-        // 色の組のシャッフル(VIVID): アクセント色の■。タップで次の組
-        if (canShuffle && !editMode) {
-            Box(
-                Modifier
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onShuffle)
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-            ) { Marker(p.accent, size = 10.dp) }
         }
         // ページ名 + 色味名。タップで色味を順に切り替える(候補が 1 つなら名前だけ)
         Text(

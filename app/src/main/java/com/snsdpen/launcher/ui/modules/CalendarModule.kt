@@ -53,7 +53,7 @@ val CalendarSpec = ModuleSpec(
     kind = REF_CALENDAR,
     name = "CALENDAR",
     defaultSize = { face -> if (face == Face.COVER) Span(8, 10) else Span(8, 8) },
-    minSize = { Span(6, 1) },
+    minSize = { Span(4, 1) },
     onTap = { _, emit -> emit(ModuleEvent.OpenCalendar) },
     content = { CalendarModule(it) },
 )

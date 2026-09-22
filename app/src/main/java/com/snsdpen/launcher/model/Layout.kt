@@ -43,7 +43,7 @@ data class PanelDef(val id: String, val app: String, val name: String = "")
 
 /** 床のタイル(計測値をブロックの数で表す)。metric = battery / memory / storage / blank、shade = 色の番号(0..2) */
 @Serializable
-data class MeterDef(val id: String, val metric: String, val shade: Int = 0)
+data class MeterDef(val id: String, val metric: String, val shade: Int = 0, val style: String = "blocks")   // style: blocks / text
 
 /** 見出しだけの行(グループ分け用) */
 @Serializable
@@ -110,8 +110,15 @@ data class LayoutState(
  * 9: マスを正方形に(カバー 16x24 / メイン 22x14)。横 2 倍、縦は 25→30dp の比で丸めて置き直す。TILE を METER(ブロック数で表す)に
  * 10: 床を BAT|WIFI|SIG / MEM|STO|NTF に(ステータスバーを隠した代わり)
  * 11: 床の色番号を metric ごとに振り直す(配色の blocks と対応)
+ * 16: NTF / MEM / STO のブロック計測を消す(文字表示は残す)
+ * 17: 並びを BAT | SIG | WIFI | BT に(WIFI と SIG の位置を入れ替え)\n * 18: 時計を 1 行に(数字の高さ = マス、秒・日付・曜日を右に 1 行で)\n * 19: カバー横(COVER_WIDE 26x15)とメインの側パネル(SIDE 7x24)を追加。横は縦の配置を詰めて生成、SIDE は予定 + タスク
+ * 20: 横の自動配置を幅 8 の縦の帯に流す方式に(見出しと中身の並びを保つ)\n * 21: 20 の流す順を「元の左の列 → 右の列」に\n * 22: SIDE を 14x24 に(メインの残り幅いっぱい)。配置は作り直し\n * 23: SIDE の上 2 行にアプリ 4 本(Chrome / Gmail / LINE / マップ)。窓はその下に開く\n * 24: MAIN を 16x24 の独立した左パネルに(初回はカバーの写し)。左のアプリをタップすると右に窓。SIDE は予定 + タスクだけ
+ * 12: 通信系(BAT/WIFI/SIG/NTF)を時計の右に集約、MEM/STO は最下段 1 行
+ * 13: BT を追加。時計の右に BAT WIFI SIG BT(2 マスずつ、濃さで表す) / NTF(4) MEM STO(2 ずつ)
+ * 14: WORK の右上に文字表示の BAT WIFI SIG BT(2 マスずつ)。重なる物は空きへ退ける
+ * 15: ボードをやめ、中のリンクを 1 本ずつ link モジュールとして展開
  */
-const val LAYOUT_VERSION = 11
+const val LAYOUT_VERSION = 24
 
 /** 旧版を 1 段ずつ移行する。現版に届かなければ null(作り直し) */
 fun migrateLayout(s0: LayoutState, apps: List<AppEntry> = emptyList()): LayoutState? {
@@ -201,6 +208,78 @@ fun migrateLayout(s0: LayoutState, apps: List<AppEntry> = emptyList()): LayoutSt
     if (s.version == 10) {
         s = s.copy(version = 11, meters = s.meters.map { it.copy(shade = meterShadeFor(it.metric, it.shade)) })
     }
+    if (s.version == 11) {
+        var t = s
+        for (face in Face.entries) t = t.stackStatusBesideClock(face, Page.PRIVATE)
+        s = t.copy(version = 12)
+    }
+    if (s.version == 12) {
+        var t = s
+        for (face in Face.entries) t = t.stackStatusCompact(face, Page.PRIVATE)
+        s = t.copy(version = 13)
+    }
+    if (s.version == 13) {
+        var t = s
+        for (face in Face.entries) t = t.seedWorkStatus(face)
+        s = t.copy(version = 14)
+    }
+    if (s.version == 14) {
+        s = s.explodeBoards().copy(version = 15)
+    }
+    if (s.version == 15) {
+        s = s.dropMeters(setOf("notif", "memory", "storage")).copy(version = 16)
+    }
+    if (s.version == 16) {
+        s = s.swapMeters("wifi", "signal").copy(version = 17)
+    }
+    if (s.version == 17) {
+        // 時計を 1 行に(数字の高さ = マス)。幅はそのまま
+        s = s.copy(layouts = s.layouts.map { l -> l.copy(refs = l.refs.map { if (it.ref == REF_CLOCK) it.copy(rowSpan = 1) else it }) }, version = 18)
+    }
+    if (s.version == 18) {
+        // カバー横(COVER_WIDE)は縦の配置を上から順に詰めて作る。SIDE は予定とタスク
+        var t = s
+        for (page in Page.entries) {
+            t = t.packInto(Face.COVER, Face.COVER_WIDE, page)
+            t = t.seedSide(page)
+        }
+        s = t.copy(version = 19)
+    }
+    if (s.version == 19) {
+        // 横の自動配置を「縦の帯に流す」方式に組み直す(19 の row-major 詰めは見出しと中身がばらけた)
+        var t = s
+        for (page in Page.entries) {
+            t = t.withPlaced(Face.COVER_WIDE, page, emptyList()).packInto(Face.COVER, Face.COVER_WIDE, page)
+        }
+        s = t.copy(version = 20)
+    }
+    if (s.version == 20) {
+        // 元の左の列 → 右の列の順で流す(左右 2 列だった群が交互に混ざらない)
+        var t = s
+        for (page in Page.entries) t = t.withPlaced(Face.COVER_WIDE, page, emptyList()).packInto(Face.COVER, Face.COVER_WIDE, page)
+        s = t.copy(version = 21)
+    }
+    if (s.version == 21) {
+        // SIDE を 7 列 → 14 列に(メインの残り幅いっぱい)。配置は作り直す
+        var t = s
+        for (page in Page.entries) t = t.withPlaced(Face.SIDE, page, emptyList()).seedSide(page)
+        s = t.copy(version = 22)
+    }
+    if (s.version == 22) {
+        // SIDE の上にアプリ 4 本(窓はその下に開く)
+        var t = s
+        for (page in Page.entries) t = t.withPlaced(Face.SIDE, page, emptyList()).seedSide(page, apps)
+        s = t.copy(version = 23)
+    }
+    if (s.version == 23) {
+        // MAIN の左パネルを独立した配置に(カバーと同じ 16x24。初回はカバーの写し)。SIDE は予定 + タスクだけに戻す
+        var t = s
+        for (page in Page.entries) {
+            t = t.withPlaced(Face.MAIN, page, t.placed(Face.COVER, page))
+            t = t.withPlaced(Face.SIDE, page, emptyList()).seedSide(page)
+        }
+        s = t.copy(version = 24)
+    }
     return s.takeIf { it.version == LAYOUT_VERSION }
 }
 
@@ -211,6 +290,7 @@ fun folderRef(id: String) = "folder:$id"
 fun boardRef(id: String) = "board:$id"
 fun panelRef(id: String) = "panel:$id"
 fun labelRef(id: String) = "label:$id"
+fun linkRef(id: String) = "link:$id"
 fun meterRef(id: String) = "meter:$id"
 const val REF_CLOCK = "clock"
 const val REF_CALENDAR = "calendar"
@@ -415,9 +495,14 @@ fun LayoutState.updatePanel(panel: PanelDef): LayoutState =
 
 fun LayoutState.addLabel(face: Face, page: Page, text: String): LayoutState {
     val def = LabelDef(id = newId("lb"), text = text)
-    val size = ModuleRegistry.specOf(labelRef(def.id))?.defaultSize?.invoke(face) ?: Span(8, 2)
-    return copy(labels = labels + def)
-        .withPlaced(face, page, placeInFirstFree(placed(face, page), gridFor(face), labelRef(def.id), size.w, size.h))
+    val spec = gridFor(face)
+    val refs = placed(face, page)
+    val half = spec.cols / 2
+    // 半幅 → 全幅 → 1/4 → 1/8 の順に空きを探す(横に 2 列並べられるように半幅が既定)
+    val next = listOf(half, spec.cols, half / 2, half / 4).map { it.coerceAtLeast(1) }.firstNotNullOfOrNull { w ->
+        placeInFirstFree(refs, spec, labelRef(def.id), w, 1).takeIf { it.size > refs.size }
+    } ?: refs
+    return copy(labels = labels + def).withPlaced(face, page, next)
 }
 
 fun LayoutState.updateLabel(label: LabelDef): LayoutState =
@@ -481,8 +566,7 @@ fun LayoutState.seedPrivate(face: Face, apps: List<AppEntry>): LayoutState {
     // 床のタイル(METER)を一番下の 2 行に敷く。上段 BAT 6 | WIFI 5 | SIG 5、下段 MEM 6 | STO 5 | NTF 5
     var meters = this.meters
     val floor = listOf(
-        listOf("battery" to 0, "wifi" to 1, "signal" to 2),
-        listOf("memory" to 3, "storage" to 4, "notif" to 5),
+        listOf("battery" to 0, "signal" to 2, "wifi" to 1),
     )
     val unit = spec.cols / 16f
     floor.forEachIndexed { r, rowDefs ->
@@ -508,17 +592,17 @@ fun LayoutState.seedPrivate(face: Face, apps: List<AppEntry>): LayoutState {
 
 // ---- 床のタイル(METER) ----
 
-const val METER_SHADES = 6
+const val METER_SHADES = 7
 
 /** metric ごとの既定の色番号(配色の blocks の並びと対応) */
 fun meterShadeFor(metric: String, fallback: Int): Int = when (metric) {
-    "battery" -> 0; "wifi" -> 1; "signal" -> 2; "memory" -> 3; "storage" -> 4; "notif" -> 5
+    "battery" -> 0; "wifi" -> 1; "signal" -> 2; "memory" -> 3; "storage" -> 4; "notif" -> 5; "bluetooth" -> 6
     else -> fallback
 }
 
 fun LayoutState.addMeter(face: Face, page: Page, metric: String): LayoutState {
     val shade = meterShadeFor(metric, meters.size % METER_SHADES)
-    val def = MeterDef(id = newId("mt"), metric = metric, shade = shade)
+    val def = MeterDef(id = newId("mt"), metric = metric, shade = shade, style = if (page == Page.WORK) "text" else "blocks")
     val size = ModuleRegistry.specOf(meterRef(def.id))?.defaultSize?.invoke(face) ?: Span(8, 1)
     return copy(meters = meters + def)
         .withPlaced(face, page, placeInFirstFree(placed(face, page), gridFor(face), meterRef(def.id), size.w, size.h))
@@ -527,3 +611,221 @@ fun LayoutState.addMeter(face: Face, page: Page, metric: String): LayoutState {
 /** 色を次に回す */
 fun LayoutState.cycleMeterShade(id: String): LayoutState =
     copy(meters = meters.map { if (it.id == id) it.copy(shade = (it.shade + 1) % METER_SHADES) else it })
+
+/**
+ * 通信系の床(BAT / WIFI / SIG / NTF)を時計の右に集約し、MEM / STO は一番下の 1 行に置く。
+ * 時計の右に空きが無ければ、その 4 つは左上から順の空きに落とす。
+ */
+fun LayoutState.stackStatusBesideClock(face: Face, page: Page): LayoutState {
+    val spec = gridFor(face)
+    val ids = meters.associateBy { it.metric }
+    val statusRefs = listOf("battery", "wifi", "signal", "notif").mapNotNull { ids[it]?.let { d -> meterRef(d.id) } }
+    val bottomRefs = listOf("memory", "storage").mapNotNull { ids[it]?.let { d -> meterRef(d.id) } }
+    var refs = placed(face, page).filterNot { it.ref in statusRefs || it.ref in bottomRefs }
+    val clock = refs.firstOrNull { it.ref == REF_CLOCK }
+    val left = clock?.let { it.col + it.colSpan } ?: 0
+    val top = clock?.row ?: 0
+    val w = ((spec.cols - left) / 2).coerceAtLeast(1)
+    statusRefs.forEachIndexed { i, ref ->
+        val pos = GridPos(left + (i % 2) * w, top + i / 2, w, 1)
+        refs = if (canPlace(pos, spec, refs)) refs + PlacedRef(ref, pos.col, pos.row, pos.colSpan, pos.rowSpan)
+        else placeInFirstFree(refs, spec, ref, w, 1)
+    }
+    val half = spec.cols / 2
+    bottomRefs.forEachIndexed { i, ref ->
+        val pos = GridPos(i * half, spec.rows - 1, half, 1)
+        refs = if (canPlace(pos, spec, refs)) refs + PlacedRef(ref, pos.col, pos.row, pos.colSpan, pos.rowSpan)
+        else placeInFirstFree(refs, spec, ref, half, 1)
+    }
+    return withPlaced(face, page, refs)
+}
+
+/**
+ * 時計の右に詰める: 上段 BAT WIFI SIG BT(2 マスずつ)、下段 NTF(4) MEM STO(2 ずつ)。
+ * BT の定義が無ければ作る。空きが無ければ左上から順の空きに落とす。
+ */
+fun LayoutState.stackStatusCompact(face: Face, page: Page): LayoutState {
+    var s = this
+    if (s.meters.none { it.metric == "bluetooth" }) {
+        s = s.copy(meters = s.meters + MeterDef("seed-meter-bluetooth", "bluetooth", meterShadeFor("bluetooth", 6)))
+    }
+    val spec = gridFor(face)
+    val byMetric = s.meters.associateBy { it.metric }
+    val rows = listOf(
+        listOf("battery" to 2, "signal" to 2, "wifi" to 2, "bluetooth" to 2),
+    )
+    val all = rows.flatten().mapNotNull { (m, _) -> byMetric[m]?.let { meterRef(it.id) } }.toSet()
+    var refs = s.placed(face, page).filterNot { it.ref in all }
+    val clock = refs.firstOrNull { it.ref == REF_CLOCK }
+    val left = clock?.let { it.col + it.colSpan } ?: 0
+    val top = clock?.row ?: 0
+    rows.forEachIndexed { r, row ->
+        var col = left
+        for ((metric, w) in row) {
+            val def = byMetric[metric] ?: continue
+            val ref = meterRef(def.id)
+            val pos = GridPos(col, top + r, w, 1)
+            refs = if (canPlace(pos, spec, refs)) refs + PlacedRef(ref, pos.col, pos.row, w, 1)
+            else placeInFirstFree(refs, spec, ref, w, 1)
+            col += w
+        }
+    }
+    return s.withPlaced(face, page, refs)
+}
+
+/**
+ * WORK の右上(1 行目の右端)に文字表示の BAT WIFI SIG BT を 2 マスずつ置く。
+ * 定義は WORK 専用("work-meter-…"、style = text)。重なっているモジュールは空きへ退ける。
+ */
+fun LayoutState.seedWorkStatus(face: Face): LayoutState {
+    var s = this
+    val metrics = listOf("battery", "wifi", "signal", "bluetooth")
+    for (m in metrics) {
+        val id = "work-meter-$m"
+        if (s.meters.none { it.id == id }) s = s.copy(meters = s.meters + MeterDef(id, m, meterShadeFor(m, 0), style = "text"))
+    }
+    val spec = gridFor(face)
+    val page = Page.WORK
+    val w = 2
+    val targets = metrics.mapIndexed { i, m -> meterRef("work-meter-$m") to GridPos(spec.cols - w * (metrics.size - i), 0, w, 1) }
+    var refs = s.placed(face, page).filterNot { r -> targets.any { it.first == r.ref } }
+    // 重なる物を外して、後で空きへ戻す
+    val evicted = refs.filter { r -> targets.any { it.second.overlaps(r.pos) } }
+    refs = refs.filterNot { it in evicted }
+    targets.forEach { (ref, pos) -> refs = refs + PlacedRef(ref, pos.col, pos.row, pos.colSpan, pos.rowSpan) }
+    evicted.forEach { r -> refs = placeInFirstFree(refs, spec, r.ref, r.colSpan, r.rowSpan) }
+    return s.withPlaced(face, page, refs)
+}
+
+// ---- リンク(単体モジュール) ----
+
+/** リンクを 1 本作って現ページの空きに置く(半幅) */
+fun LayoutState.addLink(face: Face, page: Page, link: LinkDef): LayoutState {
+    val def = if (link.id.isBlank()) link.copy(id = newId("l")) else link
+    val spec = gridFor(face)
+    val refs = placed(face, page)
+    val half = spec.cols / 2
+    val next = listOf(half, spec.cols, half / 2).map { it.coerceAtLeast(1) }.firstNotNullOfOrNull { w ->
+        placeInFirstFree(refs, spec, linkRef(def.id), w, 1).takeIf { it.size > refs.size }
+    } ?: refs
+    val links2 = if (links.any { it.id == def.id }) links.map { if (it.id == def.id) def else it } else links + def
+    return copy(links = links2).withPlaced(face, page, next)
+}
+
+fun LayoutState.updateLink(link: LinkDef): LayoutState =
+    copy(links = links.map { if (it.id == link.id) link else it })
+
+/** 共有から: 両面の WORK に置く */
+fun LayoutState.addLinkOnWork(link: LinkDef): LayoutState {
+    val def = if (link.id.isBlank()) link.copy(id = newId("l")) else link
+    var s = this
+    for (face in Face.entries) s = s.addLink(face, Page.WORK, def)
+    return s
+}
+
+/** ボードの枠を外し、中のリンクを 1 本ずつ link モジュールに展開する(ボードのあった場所から下へ) */
+fun LayoutState.explodeBoards(): LayoutState {
+    val boardsById = boards.associateBy { it.id }
+    return copy(layouts = layouts.map { l ->
+        val spec = gridFor(l.face)
+        var refs = l.refs.filterNot { it.ref.startsWith("board:") }
+        l.refs.filter { it.ref.startsWith("board:") }.forEach { b ->
+            val board = boardsById[b.ref.removePrefix("board:")] ?: return@forEach
+            val w = b.colSpan.coerceAtLeast(1)
+            var row = b.row
+            board.links.forEach { lid ->
+                if (links.none { it.id == lid }) return@forEach
+                val ref = linkRef(lid)
+                if (refs.any { it.ref == ref }) return@forEach
+                val pos = GridPos(b.col, row, w, 1)
+                refs = if (canPlace(pos, spec, refs)) refs + PlacedRef(ref, pos.col, pos.row, w, 1)
+                else placeInFirstFreeFrom(refs, spec, ref, w, 1, row)
+                row = (refs.firstOrNull { it.ref == ref }?.row ?: row) + 1
+            }
+        }
+        l.copy(refs = refs)
+    })
+}
+
+/** 指定の metric のブロック計測(文字表示は除く)を、定義と全面・全ページの配置から消す */
+fun LayoutState.dropMeters(metrics: Set<String>): LayoutState {
+    val ids = meters.filter { it.metric in metrics && it.style != "text" }.map { meterRef(it.id) }.toSet()
+    if (ids.isEmpty()) return this
+    return copy(
+        meters = meters.filterNot { meterRef(it.id) in ids },
+        layouts = layouts.map { l -> l.copy(refs = l.refs.filterNot { it.ref in ids }) },
+    )
+}
+
+/** 2 つの metric のブロック計測の置き場所を、全面・全ページで入れ替える(大きさが同じ時だけ) */
+fun LayoutState.swapMeters(a: String, b: String): LayoutState {
+    val ra = meters.filter { it.metric == a && it.style != "text" }.map { meterRef(it.id) }.toSet()
+    val rb = meters.filter { it.metric == b && it.style != "text" }.map { meterRef(it.id) }.toSet()
+    return copy(layouts = layouts.map { l ->
+        val pa = l.refs.firstOrNull { it.ref in ra }
+        val pb = l.refs.firstOrNull { it.ref in rb }
+        if (pa == null || pb == null || pa.colSpan != pb.colSpan || pa.rowSpan != pb.rowSpan) l
+        else l.copy(refs = l.refs.map {
+            when (it.ref) {
+                pa.ref -> it.copy(col = pb.col, row = pb.row)
+                pb.ref -> it.copy(col = pa.col, row = pa.row)
+                else -> it
+            }
+        })
+    })
+}
+
+/**
+ * [from] の配置を [to] のマス目に流し直す。[to] に既に配置があれば何もしない。
+ * 縦の並び(見出し → その下のアプリ)を保つため、[to] を幅 8 の縦の帯に分け、
+ * 元の (行, 列) 順に左の帯から上へ詰め、入らなければ次の帯へ。どの帯にも入らなければ全体の最初の空きへ
+ */
+fun LayoutState.packInto(from: Face, to: Face, page: Page): LayoutState {
+    if (placed(to, page).isNotEmpty()) return this
+    val spec = gridFor(to)
+    val bandW = 8
+    val bands = (spec.cols / bandW).coerceAtLeast(1)
+    var refs = emptyList<PlacedRef>()
+    // 元の左の列(col < 8)を先に、次に右の列。列の中は上から
+    for (r in placed(from, page).sortedWith(compareBy({ it.col / bandW }, { it.row }, { it.col }))) {
+        val w = r.colSpan.coerceIn(1, spec.cols)
+        val h = r.rowSpan.coerceIn(1, spec.rows)
+        var done = false
+        if (w <= bandW) {
+            band@ for (b in 0 until bands) {
+                val col = b * bandW
+                for (row in 0..(spec.rows - h)) {
+                    val pos = GridPos(col, row, w, h)
+                    if (canPlace(pos, spec, refs)) { refs = refs + PlacedRef(r.ref, col, row, w, h); done = true; break@band }
+                }
+            }
+        }
+        if (!done) refs = placeInFirstFree(refs, spec, r.ref, w, h)
+    }
+    return withPlaced(to, page, refs)
+}
+
+/**
+ * SIDE(メインの右側)の初期配置: 予定とタスク。apps を渡すと上 2 行にアプリ 4 本も置く(既定は置かない)。既に配置があれば何もしない
+ */
+/** v23 で SIDE に置いていたアプリ(v24 で外した。左パネルから右に窓を出す方式に)。apps を渡した時だけ使う */
+private val SideSeedApps = listOf("com.android.chrome", "com.google.android.gm", "jp.naver.line.android", "com.google.android.apps.maps")
+
+fun LayoutState.seedSide(page: Page, apps: List<AppEntry> = emptyList()): LayoutState {
+    if (placed(Face.SIDE, page).isNotEmpty()) return this
+    val spec = gridFor(Face.SIDE)
+    var panels = this.panels
+    var refs = emptyList<PlacedRef>()
+    val half = spec.cols / 2
+    val found = SideSeedApps.mapNotNull { pkg -> apps.firstOrNull { it.packageName == pkg } }
+    found.forEachIndexed { i, app ->
+        val id = "side-" + app.packageName
+        if (panels.none { it.id == id }) panels = panels + PanelDef(id, appKey(app))
+        refs = refs + PlacedRef(panelRef(id), (i % 2) * half, i / 2, half, 1)
+    }
+    val top = if (found.isEmpty()) 0 else (found.size + 1) / 2
+    val rest = spec.rows - top
+    refs = refs + PlacedRef(REF_CALENDAR, 0, top, spec.cols, rest / 2)
+    refs = refs + PlacedRef(REF_TASKS, 0, top + rest / 2, spec.cols, rest - rest / 2)
+    return copy(panels = panels).withPlaced(Face.SIDE, page, refs)
+}

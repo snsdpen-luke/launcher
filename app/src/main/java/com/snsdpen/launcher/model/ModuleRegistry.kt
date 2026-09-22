@@ -10,6 +10,7 @@ import com.snsdpen.launcher.ui.modules.MeterSpec
 import com.snsdpen.launcher.ui.modules.ClockSpec
 import com.snsdpen.launcher.ui.modules.FolderSpec
 import com.snsdpen.launcher.ui.modules.LabelSpec
+import com.snsdpen.launcher.ui.modules.LinkSpec
 import com.snsdpen.launcher.ui.modules.PanelSpec
 
 /**
@@ -31,21 +32,28 @@ class ModuleScope(
     val emit: (ModuleEvent) -> Unit,
     /** 通知の件数(package → 件数)。通知アクセスが無ければ空 */
     val notifCounts: Map<String, Int> = emptyMap(),
+    /** 1 マスの一辺(dp)。アイコンの後ろの「1 マス」を描く用 */
+    val cell: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(30f),
 )
 
 /** モジュールが上へ投げるイベント。処理するのは LauncherApp */
 sealed interface ModuleEvent {
     data class OpenFolder(val id: String) : ModuleEvent
     data class Launch(val app: AppEntry) : ModuleEvent
+    /** サイドパネルから: アプリをパネルの矩形の自由配置ウィンドウで開く */
+    data class LaunchInPane(val app: AppEntry) : ModuleEvent
     data class OpenIntent(val intent: Intent) : ModuleEvent
     data class OpenLink(val url: String) : ModuleEvent
     data class EditBoard(val id: String) : ModuleEvent
     data class EditPanel(val id: String) : ModuleEvent
     data class EditLabel(val id: String) : ModuleEvent
+    data class EditLink(val id: String) : ModuleEvent
     /** 床のタイル(METER)の色を次に回す */
     data class CycleMeter(val id: String) : ModuleEvent
     /** 「通知へのアクセス」の設定画面を開く */
     data object OpenNotifAccess : ModuleEvent
+    /** Bluetooth のオン/オフをシステムの確認ダイアログで切り替える(直接は切れない) */
+    data object ToggleBluetooth : ModuleEvent
     /** モジュール内部の長押しから編集モードへ */
     data object EnterEdit : ModuleEvent
     data object OpenCalendar : ModuleEvent
@@ -90,6 +98,7 @@ object ModuleRegistry {
         BoardSpec,
         PanelSpec,
         LabelSpec,
+        LinkSpec,
         MeterSpec,
         CalendarSpec,
         TasksSpec,

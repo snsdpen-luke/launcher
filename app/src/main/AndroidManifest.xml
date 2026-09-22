@@ -4,6 +4,7 @@
     <!-- Wi-Fi 強度(宣言のみ、ダイアログ無し) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- カレンダーの予定を読む(CALENDAR モジュール。無ければ日付だけ出す) -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />

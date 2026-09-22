@@ -9,6 +9,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,11 +50,18 @@ private fun FolderModule(scope: ModuleScope) {
         p.series[index.coerceAtLeast(0) % p.series.size] else p.fg
 
     Row(
-        Modifier.fillMaxSize().padding(horizontal = 8.dp),
+        Modifier.fillMaxSize().padding(start = 0.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Marker(marker)
-        Spacer(Modifier.width(10.dp))
+        val n0 = scope.apps.filter { "${it.packageName}/${it.activityName}" in def.apps.toSet() }.sumOf { scope.notifCounts[it.packageName] ?: 0 }
+        val notified = n0 > 0 || com.snsdpen.launcher.ui.BLINK_DEBUG
+        val blink = com.snsdpen.launcher.ui.blinkAlpha(notified)
+        // 未読があるときは■の 1 マスがオレンジで明滅する
+        Box(Modifier.size(scope.cell), contentAlignment = Alignment.Center) {
+            if (notified) Box(Modifier.fillMaxSize().background(com.snsdpen.launcher.ui.NotifOrange.copy(alpha = blink)))
+            Marker(marker)
+        }
+        Spacer(Modifier.width(2.dp))
         Text(
             def.name,
             color = p.fg,

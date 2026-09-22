@@ -114,7 +114,7 @@ fun BoardEditSheet(
 }
 
 @Composable
-private fun LinkDialog(initial: LinkDef, onSave: (LinkDef) -> Unit, onCancel: () -> Unit) {
+fun LinkDialog(initial: LinkDef, onSave: (LinkDef) -> Unit, onCancel: () -> Unit) {
     var name by remember { mutableStateOf(initial.name) }
     var url by remember { mutableStateOf(initial.url) }
     val valid = url.isNotBlank()

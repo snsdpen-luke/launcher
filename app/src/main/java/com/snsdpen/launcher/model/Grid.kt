@@ -82,3 +82,39 @@ fun placeInFirstFreeFrom(
     }
     return refs
 }
+
+/**
+ * ドロップ先を解決して、新しい配置(全体)を返す。置けなければ null。
+ * 1. 枠外なら中に丸める
+ * 2. そのまま置ける → 置く
+ * 3. 1 個とだけ重なり、双方が収まる → 入れ替え
+ * 4. 2 マス以内の近くに空きがある → そこへ寄せる
+ * 5. 重なっている物を空きへ押しのけられる → 押しのけて置く
+ */
+fun resolveDrop(dragged: PlacedRef, wanted: GridPos, spec: GridSpec, others: List<PlacedRef>): List<PlacedRef>? {
+    val target = GridPos(
+        wanted.col.coerceIn(0, (spec.cols - wanted.colSpan).coerceAtLeast(0)),
+        wanted.row.coerceIn(0, (spec.rows - wanted.rowSpan).coerceAtLeast(0)),
+        wanted.colSpan, wanted.rowSpan,
+    )
+    if (!target.fits(spec)) return null
+    if (canPlace(target, spec, others)) return others + dragged.at(target)
+    resolveSwap(dragged, target, spec, others)?.let { (other, otherPos) ->
+        return others.map { if (it.ref == other.ref) it.at(otherPos) else it } + dragged.at(target)
+    }
+    for (d in 1..2) {
+        for (dr in -d..d) for (dc in -d..d) {
+            if (kotlin.math.abs(dr) + kotlin.math.abs(dc) != d) continue
+            val p = GridPos(target.col + dc, target.row + dr, target.colSpan, target.rowSpan)
+            if (canPlace(p, spec, others)) return others + dragged.at(p)
+        }
+    }
+    val overlapping = others.filter { target.overlaps(it.pos) }
+    var refs = others.filterNot { o -> overlapping.any { it.ref == o.ref } } + dragged.at(target)
+    for (o in overlapping) {
+        val next = placeInFirstFree(refs, spec, o.ref, o.colSpan, o.rowSpan)
+        if (next.size == refs.size) return null
+        refs = next
+    }
+    return refs
+}
