@@ -112,13 +112,13 @@ data class LayoutState(
  * 11: 床の色番号を metric ごとに振り直す(配色の blocks と対応)
  * 16: NTF / MEM / STO のブロック計測を消す(文字表示は残す)
  * 17: 並びを BAT | SIG | WIFI | BT に(WIFI と SIG の位置を入れ替え)\n * 18: 時計を 1 行に(数字の高さ = マス、秒・日付・曜日を右に 1 行で)\n * 19: カバー横(COVER_WIDE 26x15)とメインの側パネル(SIDE 7x24)を追加。横は縦の配置を詰めて生成、SIDE は予定 + タスク
- * 20: 横の自動配置を幅 8 の縦の帯に流す方式に(見出しと中身の並びを保つ)\n * 21: 20 の流す順を「元の左の列 → 右の列」に\n * 22: SIDE を 14x24 に(メインの残り幅いっぱい)。配置は作り直し\n * 23: SIDE の上 2 行にアプリ 4 本(Chrome / Gmail / LINE / マップ)。窓はその下に開く\n * 24: MAIN を 16x24 の独立した左パネルに(初回はカバーの写し)。左のアプリをタップすると右に窓。SIDE は予定 + タスクだけ
+ * 20: 横の自動配置を幅 8 の縦の帯に流す方式に(見出しと中身の並びを保つ)\n * 21: 20 の流す順を「元の左の列 → 右の列」に\n * 22: SIDE を 14x24 に(メインの残り幅いっぱい)。配置は作り直し\n * 23: SIDE の上 2 行にアプリ 4 本(Chrome / Gmail / LINE / マップ)。窓はその下に開く\n * 24: MAIN を 16x24 の独立した左パネルに(初回はカバーの写し)。左のアプリをタップすると右に窓。SIDE は予定 + タスクだけ\n * 25: DRIVE を組み直す。時計 + YouTube / Spotify / マップの生きたタイル 3 枚(縦 16x5、横 8x8)。下は明るさ・音量用に空ける\n * 26: DRIVE の下に明るさ・音量のスライダー(slider:brightness / slider:volume、幅いっぱい 2 行ずつ)\n * 27: DRIVE の時計の右に BAT | SIG | WIFI | BT(他のページと同じ 2 マスずつ)\n * 28: WORK の計測を文字表示からブロック表示に。並びは BAT | SIG | WIFI | BT
  * 12: 通信系(BAT/WIFI/SIG/NTF)を時計の右に集約、MEM/STO は最下段 1 行
  * 13: BT を追加。時計の右に BAT WIFI SIG BT(2 マスずつ、濃さで表す) / NTF(4) MEM STO(2 ずつ)
  * 14: WORK の右上に文字表示の BAT WIFI SIG BT(2 マスずつ)。重なる物は空きへ退ける
  * 15: ボードをやめ、中のリンクを 1 本ずつ link モジュールとして展開
  */
-const val LAYOUT_VERSION = 24
+const val LAYOUT_VERSION = 28
 
 /** 旧版を 1 段ずつ移行する。現版に届かなければ null(作り直し) */
 fun migrateLayout(s0: LayoutState, apps: List<AppEntry> = emptyList()): LayoutState? {
@@ -279,6 +279,21 @@ fun migrateLayout(s0: LayoutState, apps: List<AppEntry> = emptyList()): LayoutSt
             t = t.withPlaced(Face.SIDE, page, emptyList()).seedSide(page)
         }
         s = t.copy(version = 24)
+    }
+    if (s.version == 24) {
+        s = s.seedDrive(apps).copy(version = 25)
+    }
+    if (s.version == 25) {
+        s = s.seedDriveSliders().copy(version = 26)
+    }
+    if (s.version == 26) {
+        s = s.seedDriveStatus().copy(version = 27)
+    }
+    if (s.version == 27) {
+        // WORK の計測を文字表示からブロック表示に(他のページと同じ)。並びは BAT | SIG | WIFI | BT
+        var t = s.copy(meters = s.meters.map { if (it.id.startsWith("work-meter-")) it.copy(style = "blocks") else it })
+        t = t.seedStatusRow(Page.WORK, listOf("battery", "signal", "wifi", "bluetooth").map { "work-meter-$it" })
+        s = t.copy(version = 28)
     }
     return s.takeIf { it.version == LAYOUT_VERSION }
 }
@@ -828,4 +843,84 @@ fun LayoutState.seedSide(page: Page, apps: List<AppEntry> = emptyList()): Layout
     refs = refs + PlacedRef(REF_CALENDAR, 0, top, spec.cols, rest / 2)
     refs = refs + PlacedRef(REF_TASKS, 0, top + rest / 2, spec.cols, rest - rest / 2)
     return copy(panels = panels).withPlaced(Face.SIDE, page, refs)
+}
+
+/** DRIVE で使うアプリ(この順で上から) */
+private val DriveApps = listOf("com.google.android.youtube", "com.spotify.music", "com.google.android.apps.maps")
+
+/**
+ * DRIVE ページを組み直す: 時計 1 行 + 生きたタイル 3 枚。縦(COVER / MAIN)は 16x5 を 6 行おき、横(COVER_WIDE)は 8x8 を 3 列。
+ * 下の 4〜5 行は明るさ・音量用に空けておく。端末に無いアプリは飛ばす
+ */
+fun LayoutState.seedDrive(apps: List<AppEntry>): LayoutState {
+    var panels = this.panels
+    val ids = DriveApps.mapNotNull { pkg ->
+        val app = apps.firstOrNull { it.packageName == pkg } ?: return@mapNotNull null
+        val id = "drive-$pkg"
+        if (panels.none { it.id == id }) panels = panels + PanelDef(id, appKey(app))
+        id
+    }
+    var s = copy(panels = panels)
+    for (face in listOf(Face.COVER, Face.MAIN, Face.COVER_WIDE)) {
+        val spec = gridFor(face)
+        val refs = ArrayList<PlacedRef>()
+        refs += PlacedRef(REF_CLOCK, 0, 0, 8, 1)
+        ids.forEachIndexed { i, id ->
+            refs += if (face == Face.COVER_WIDE) PlacedRef(panelRef(id), i * 9, 2, 8, 8)
+            else PlacedRef(panelRef(id), 0, 2 + i * 6, spec.cols, 5)
+        }
+        s = s.withPlaced(face, Page.DRIVE, refs.filter { canPlace(GridPos(it.col, it.row, it.colSpan, it.rowSpan), spec, emptyList()) })
+    }
+    return s
+}
+
+const val REF_BRIGHTNESS = "slider:brightness"
+const val REF_VOLUME = "slider:volume"
+
+/** DRIVE の下に明るさ・音量のスライダー(幅いっぱい 2 行ずつ)。既にあれば何もしない */
+fun LayoutState.seedDriveSliders(): LayoutState {
+    var s = this
+    for (face in listOf(Face.COVER, Face.MAIN, Face.COVER_WIDE)) {
+        val spec = gridFor(face)
+        var refs = s.placed(face, Page.DRIVE).filterNot { it.ref == REF_BRIGHTNESS || it.ref == REF_VOLUME }
+        val top = if (face == Face.COVER_WIDE) 11 else spec.rows - 4
+        val b = PlacedRef(REF_BRIGHTNESS, 0, top, spec.cols, 2)
+        val v = PlacedRef(REF_VOLUME, 0, top + 2, spec.cols, 2)
+        fun hit(a: PlacedRef, o: PlacedRef) = a.col < o.col + o.colSpan && o.col < a.col + a.colSpan && a.row < o.row + o.rowSpan && o.row < a.row + a.rowSpan
+        refs = refs.filterNot { hit(it, b) || hit(it, v) } + b + v
+        s = s.withPlaced(face, Page.DRIVE, refs)
+    }
+    return s
+}
+
+/** DRIVE の時計の右に BAT | SIG | WIFI | BT を 2 マスずつ(他のページと同じ)。既にあれば置き直す */
+fun LayoutState.seedDriveStatus(): LayoutState {
+    var s = this
+    val byMetric = s.meters.filter { it.style != "text" }.associateBy { it.metric }
+    val order = listOf("battery", "signal", "wifi", "bluetooth")
+    for (face in listOf(Face.COVER, Face.MAIN, Face.COVER_WIDE)) {
+        val ids = order.mapNotNull { byMetric[it]?.let { d -> meterRef(d.id) } }
+        var refs = s.placed(face, Page.DRIVE).filterNot { it.ref in ids }
+        var col = 8
+        for (ref in ids) { refs = refs + PlacedRef(ref, col, 0, 2, 1); col += 2 }
+        s = s.withPlaced(face, Page.DRIVE, refs)
+    }
+    return s
+}
+
+/** [page] の時計の右(列 8〜15)に、指定の計測 id を 2 マスずつ並べ直す(全面)。既にあれば置き直す */
+fun LayoutState.seedStatusRow(page: Page, ids: List<String>): LayoutState {
+    var s = this
+    val refs0 = ids.filter { id -> s.meters.any { it.id == id } }.map { meterRef(it) }
+    for (face in listOf(Face.COVER, Face.MAIN, Face.COVER_WIDE)) {
+        var refs = s.placed(face, page).filterNot { it.ref in refs0 }
+        var col = 8
+        for (ref in refs0) {
+            val pos = GridPos(col, 0, 2, 1)
+            refs = refs.filterNot { pos.overlaps(it.pos) } + PlacedRef(ref, col, 0, 2, 1)
+            col += 2
+        }
+        s = s.withPlaced(face, page, refs)
+    }
+    return s
 }

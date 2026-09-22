@@ -135,6 +135,11 @@ fun LauncherApp(surface: Surface) {
     }
     // 権限リクエスト(Activity の上でだけ使える。オーバーレイ面では別経路が要る)
     val calendarPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refreshTick++ }
+    // 再生情報(メディアセッション)は表示中だけ読む
+    com.snsdpen.launcher.ui.WhileResumed(Unit) {
+        com.snsdpen.launcher.data.MediaNow.start(context)
+        try { kotlinx.coroutines.awaitCancellation() } finally { com.snsdpen.launcher.data.MediaNow.stop() }
+    }
     val btPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) com.snsdpen.launcher.data.toggleBluetooth(context) }
 
     var editMode by remember { mutableStateOf(false) }
@@ -165,6 +170,7 @@ fun LauncherApp(surface: Surface) {
         when (e) {
             is ModuleEvent.OpenFolder -> openFolderId = e.id
             is ModuleEvent.Launch -> launchApp(context, e.app)
+            is ModuleEvent.MediaControl -> com.snsdpen.launcher.data.MediaNow.control(e.pkg, e.action)
             is ModuleEvent.LaunchInPane -> {
                 val dm = context.resources.displayMetrics
                 val pane = sideBounds ?: android.graphics.Rect(dm.widthPixels / 2, 0, dm.widthPixels, dm.heightPixels)
@@ -187,6 +193,9 @@ fun LauncherApp(surface: Surface) {
             is ModuleEvent.EditLink -> linkDialog = layout?.links?.firstOrNull { it.id == e.id }
             is ModuleEvent.CycleMeter -> store.update { it.cycleMeterShade(e.id) }
             ModuleEvent.OpenNotifAccess -> NotifListener.openSettings(context)
+            is ModuleEvent.SetBrightness -> if (!com.snsdpen.launcher.data.setBrightness(context, e.level)) runCatching { context.startActivity(com.snsdpen.launcher.data.writeSettingsIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            is ModuleEvent.SetVolume -> com.snsdpen.launcher.data.setVolume(context, e.level)
+            ModuleEvent.RequestWriteSettings -> runCatching { context.startActivity(com.snsdpen.launcher.data.writeSettingsIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             ModuleEvent.ToggleBluetooth -> {
                 val granted = context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED
                 if (granted) com.snsdpen.launcher.data.toggleBluetooth(context) else btPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)

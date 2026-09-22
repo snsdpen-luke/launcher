@@ -42,6 +42,13 @@ sealed interface ModuleEvent {
     data class Launch(val app: AppEntry) : ModuleEvent
     /** サイドパネルから: アプリをパネルの矩形の自由配置ウィンドウで開く */
     data class LaunchInPane(val app: AppEntry) : ModuleEvent
+    /** 再生の操作(play / pause / toggle / next / prev) */
+    data class MediaControl(val pkg: String, val action: String) : ModuleEvent
+    /** 画面の明るさ / メディア音量(0..1) */
+    data class SetBrightness(val level: Float) : ModuleEvent
+    data class SetVolume(val level: Float) : ModuleEvent
+    /** 「システム設定の変更」の許可画面へ */
+    data object RequestWriteSettings : ModuleEvent
     data class OpenIntent(val intent: Intent) : ModuleEvent
     data class OpenLink(val url: String) : ModuleEvent
     data class EditBoard(val id: String) : ModuleEvent
@@ -102,6 +109,7 @@ object ModuleRegistry {
         MeterSpec,
         CalendarSpec,
         TasksSpec,
+        com.snsdpen.launcher.ui.modules.SliderSpec,
     )
     private val byKind = all.associateBy { it.kind }
 

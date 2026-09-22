@@ -14,7 +14,7 @@ android {
         minSdk = 31
         targetSdk = 35
         versionCode = 36
-        versionName = "0.31.0"   // UI は BuildConfig.VERSION_NAME を読む。ここだけ上げればよい
+        versionName = "0.32.0"   // UI は BuildConfig.VERSION_NAME を読む。ここだけ上げればよい
     }
 
     buildTypes {

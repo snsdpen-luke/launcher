@@ -18,6 +18,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,9 +52,14 @@ val TasksSpec = ModuleSpec(
     content = { TasksModule(it) },
 )
 
-private val HeaderH = 28.dp
-private val RowH = 44.dp
+private val HeaderH = 28.dp   // 見出し(■ TASKS)
+/** 行の高さはマス + 目地(グリッドの行に揃う)。チェック箱の見た目は 18dp、当たり判定は 1 マス */
+private val BoxSize = 18.dp
 
+/**
+ * タスクは「押して完了する物」なので、左に大きめのチェック箱。箱を押すと完了⇄未完了、文字を押すと編集、長押しで配置編集。
+ * 期限は今日なら濃く、過ぎていれば橙
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TasksModule(scope: ModuleScope) {
@@ -58,9 +69,12 @@ private fun TasksModule(scope: ModuleScope) {
     val doneCount = tasks.size - open
     val edit = scope.editMode
 
+    val cell = scope.cell
+    val gap = com.snsdpen.launcher.ui.GridGap
+    val rowH = cell + gap
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val maxH = maxHeight
-        val rows = ((maxH - HeaderH) / RowH).toInt().coerceAtLeast(0)
+        val rows = ((maxH - HeaderH) / rowH).toInt().coerceAtLeast(0)
         val shown = tasks.take(rows)
         val overflow = tasks.size - shown.size
 
@@ -79,45 +93,82 @@ private fun TasksModule(scope: ModuleScope) {
             if (tasks.isEmpty() && !edit) {
                 Text("TAP TO ADD", color = p.fgDim, fontSize = 11.sp, modifier = Modifier.padding(start = 26.dp, top = 6.dp))
             }
+            val today = LocalDate.now()
             shown.forEach { t ->
+                val dueDate0 = parseIsoDate(t.due)
+                val overdue0 = !t.done && dueDate0 != null && dueDate0.isBefore(today)
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(RowH)
-                        .then(
-                            if (edit) Modifier
-                            else Modifier.combinedClickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { scope.emit(ModuleEvent.ToggleTask(t.id)) },
-                                onLongClick = { scope.emit(ModuleEvent.EditTask(t.id)) },
-                            )
-                        )
-                        .padding(start = 8.dp, end = 8.dp),
+                    Modifier.fillMaxWidth().height(rowH).padding(end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 未完了は中抜き、完了は塗り(薄い)
-                    Marker(if (t.done) p.fgDim else p.fg, filled = t.done)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
+                    // チェック箱: 当たり判定は 1 マス(アイコンと同じ位置)、見た目は 18dp。未完了は中抜き、完了は塗り、期限切れは橙の枠
+                    Box(
+                        Modifier
+                            .size(cell)
+                            .then(
+                                if (edit) Modifier
+                                else Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) { scope.emit(ModuleEvent.ToggleTask(t.id)) }
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(BoxSize)
+                                .then(
+                                    if (t.done) Modifier.background(p.fgDim)
+                                    else if (overdue0) Modifier.border(2.dp, com.snsdpen.launcher.ui.NotifOrange)
+                                    else Modifier.border(1.5.dp, p.fg)
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (t.done) Text("✓", color = p.bg, fontSize = 12.sp, lineHeight = 13.sp)
+                        }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .then(
+                                if (edit) Modifier
+                                else Modifier.combinedClickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { scope.emit(ModuleEvent.EditTask(t.id)) },
+                                    onLongClick = { scope.emit(ModuleEvent.EnterEdit) },
+                                )
+                            ),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
                         Text(
                             t.text,
                             color = if (t.done) p.fgDim else p.fg,
                             fontSize = 13.sp,
-                            lineHeight = 16.sp,
+                            lineHeight = 15.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            textDecoration = if (t.done) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
                         )
                         if (t.people.isNotBlank()) {
-                            Text(t.people, color = p.fgDim, fontSize = 10.sp, lineHeight = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(t.people, color = p.fgDim, fontSize = 10.sp, lineHeight = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                     val label = dateLabel(t.start, t.due)
                     if (label != null) {
                         val dueDate = parseIsoDate(t.due)
-                        // 期限が今日以前なら濃く、先なら薄く。完了は薄く
-                        val hot = !t.done && dueDate != null && !dueDate.isAfter(LocalDate.now())
-                        Text(label, color = if (hot) p.fg else p.fgDim, fontSize = 10.sp, modifier = Modifier.padding(start = 6.dp))
+                        // 期限: 過ぎていれば橙、今日なら濃く、先なら薄く。完了は薄く
+                        val overdue = !t.done && dueDate != null && dueDate.isBefore(today)
+                        val dueToday = !t.done && dueDate != null && dueDate.isEqual(today)
+                        Text(
+                            label,
+                            color = if (overdue) com.snsdpen.launcher.ui.NotifOrange else if (dueToday) p.fg else p.fgDim,
+                            fontSize = 10.sp,
+                            fontWeight = if (overdue || dueToday) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
+                            modifier = Modifier.padding(start = 6.dp),
+                        )
                     }
                 }
             }

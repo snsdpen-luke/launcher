@@ -53,16 +53,32 @@ val WorkPalette = Palette(
     line = Color(0xFFD9D4CA),
     accent = Color(0xFF1A1A1A),
     isLight = true,
-    monoIcons = true,   // 白・黒・グレーの紙面に合わせてアイコンもモノクロ
+    monoIcons = false,  // 色付き(モノクロは試したが色付きに戻した 2026-09-22)
+    floor = listOf(Color(0xFFF9F7F2), Color(0xFFF7F5F0), Color(0xFFF5F3ED), Color(0xFFF3F1EB), Color(0xFFF1EFE8)),   // 極薄。紙にほぼ見えない程度
+    blockEmpty = Color(0x14000000),
+    meterColors = mapOf(   // 白い紙になじむ薄い 4 色(強調しない)
+        "battery" to Color(0xFFA9C48E),
+        "signal" to Color(0xFFB7ABD0),
+        "wifi" to Color(0xFFD6C98A),
+        "bluetooth" to Color(0xFF9DBCCB),
+    ),
 )
 
 /** DRIVE: 濃紺の地に高コントラストの系列色。運転中に読める明るさを優先 */
 val DrivePalette = Palette(
-    bg = Color(0xFF07101F),
+    bg = Color(0xFF15171A),       // 濃いグレー(壁のモザイクの地)
     fg = Color(0xFFFFFFFF),
-    fgDim = Color(0xFF8FA3BF),
-    line = Color(0xFF1E2E48),
+    fgDim = Color(0xFF9AA0A6),
+    line = Color(0xFF2A2E33),
     accent = Color(0xFFFFB020),   // 琥珀
+    blockEmpty = Color(0x1FFFFFFF),
+    floor = listOf(Color(0xFF26292E), Color(0xFF212429), Color(0xFF1C1F23), Color(0xFF181B1F), Color(0xFF131518)),   // 上が明るく下が暗い
+    meterColors = mapOf(   // 壁のグレーになじむよう彩度を落とす
+        "battery" to Color(0xFF7FA35A),
+        "signal" to Color(0xFF8E80AE),
+        "wifi" to Color(0xFFB9A85A),
+        "bluetooth" to Color(0xFF6A95A8),
+    ),
     series = listOf(
         Color(0xFFFFB020),        // 琥珀
         Color(0xFF2ED3F0),        // シアン

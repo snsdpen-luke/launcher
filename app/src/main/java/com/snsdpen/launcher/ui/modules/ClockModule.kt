@@ -71,10 +71,13 @@ private fun ClockModule(scope: ModuleScope) {
             now = LocalDateTime.now()
         }
     }
-    val timeColor = if (scope.page == Page.DRIVE) p.accent else p.fg
+    // DRIVE は差し色を使わず白とグレーだけ(琥珀の時刻はタイルの色とけんかする)
+    val drive = scope.page == Page.DRIVE
+    val timeColor = p.fg
     // 曜日の色: 配色の系列色を曜日で回す(日=0 … 土=6)。系列が無ければアクセント
     val dow = now.dayOfWeek.value % 7
-    val dowColor = if (p.series.isNotEmpty()) p.series[dow % p.series.size] else p.accent
+    val dowColor = if (drive) p.fg else if (p.series.isNotEmpty()) p.series[dow % p.series.size] else p.accent
+    val secColor = if (drive) p.fgDim else p.accent
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val time = now.format(TimeFmt)
     val sec = now.format(SecFmt)
@@ -96,7 +99,7 @@ private fun ClockModule(scope: ModuleScope) {
             x += layout.size.width + gap
         }
         put(time, timeStyle, timeColor)
-        put(sec, smallStyle, p.accent)
+        put(sec, smallStyle, secColor)
         put(date, smallStyle, p.fgDim)
         put(dowText, smallStyle.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp), dowColor)
     }

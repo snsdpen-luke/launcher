@@ -90,3 +90,41 @@ fun wifiPanelIntent(): Intent = Intent(android.provider.Settings.Panel.ACTION_WI
 
 /** システムのインターネット接続パネル(モバイルデータと Wi-Fi のスイッチ) */
 fun internetPanelIntent(): Intent = Intent(android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+
+// ---- 明るさ・音量(DRIVE のスライダー用) ----
+
+/** 「システム設定の変更」を許可されているか(明るさの書き込みに要る) */
+fun canWriteSettings(context: Context): Boolean = android.provider.Settings.System.canWrite(context)
+
+/** 「システム設定の変更」の許可画面(自分のアプリの行) */
+fun writeSettingsIntent(context: Context): Intent =
+    Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS, android.net.Uri.parse("package:" + context.packageName))
+
+/** 画面の明るさ 0..1 */
+fun readBrightness(context: Context): Float = runCatching {
+    android.provider.Settings.System.getInt(context.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS) / 255f
+}.getOrDefault(0.5f).coerceIn(0f, 1f)
+
+/** 画面の明るさを設定(0..1)。自動明るさは切る。許可が無ければ false */
+fun setBrightness(context: Context, level: Float): Boolean {
+    if (!canWriteSettings(context)) return false
+    val cr = context.contentResolver
+    return runCatching {
+        android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+        android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, (level.coerceIn(0f, 1f) * 255).toInt().coerceIn(1, 255))
+    }.getOrDefault(false)
+}
+
+/** メディア音量 0..1 */
+fun readVolume(context: Context): Float {
+    val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return 0f
+    val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    return am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / max
+}
+
+/** メディア音量を設定(0..1)。権限不要 */
+fun setVolume(context: Context, level: Float) {
+    val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
+    val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    runCatching { am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, Math.round(level.coerceIn(0f, 1f) * max), 0) }
+}
