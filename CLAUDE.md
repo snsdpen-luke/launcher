@@ -23,6 +23,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 19)
   `adb exec-out screencap -p -d 4630947123231501204 > cover.png`(カバー)/ `-d 4630947004648141459`(メイン)
 - バージョンは app/build.gradle.kts の versionName だけ。UI は BuildConfig.VERSION_NAME を読む
 - debug 署名鍵は keystore/debug.keystore(~/.android/debug.keystore と同一)
+- リモートは GitHub `snsdpen-luke/launcher`(非公開、origin/main)。チーム共有用。push は剛さんの指示で
 
 ## 骨格
 - `Surface { HOME, SPLIT_PANEL, OVERLAY_PANEL }` … 窓の種類。`LauncherApp(surface)` の引数 1 つ
