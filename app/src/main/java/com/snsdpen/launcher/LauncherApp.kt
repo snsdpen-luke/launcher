@@ -150,6 +150,7 @@ fun LauncherApp(surface: Surface) {
     var addingTask by remember { mutableStateOf(false) }
     var editingTaskId by remember { mutableStateOf<String?>(null) }
     var addSheet by remember { mutableStateOf(false) }
+    var quickPanel by remember { mutableStateOf(false) }
     var tilePicker by remember { mutableStateOf(false) }
     /** "new" = 新しいパネル、それ以外 = 差し替えるパネルの id */
     var pickAppFor by remember { mutableStateOf<String?>(null) }
@@ -300,6 +301,7 @@ fun LauncherApp(surface: Surface) {
                     themeName = if ((ThemeOptions[p]?.size ?: 1) > 1) themeOf(p, themes[p]).name else null,
                     onCycleTheme = { store.setTheme(p, nextTheme(p, themes[p])) },
                     onOpenDrawer = { drawerOpen = true },
+                    onOpenQuick = { quickPanel = true },
                     onEvent = onEvent,
                     notifCounts = notifCounts,
                     onArrange = { refs -> store.update { it.withPlaced(face, p, refs) } },
@@ -369,6 +371,8 @@ fun LauncherApp(surface: Surface) {
                 )
             }
         }
+
+        if (quickPanel) com.snsdpen.launcher.ui.QuickPanel(onClose = { quickPanel = false })
 
         if (addSheet) {
             AddSheet(

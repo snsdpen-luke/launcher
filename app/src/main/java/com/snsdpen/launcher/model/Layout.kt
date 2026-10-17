@@ -112,13 +112,13 @@ data class LayoutState(
  * 11: 床の色番号を metric ごとに振り直す(配色の blocks と対応)
  * 16: NTF / MEM / STO のブロック計測を消す(文字表示は残す)
  * 17: 並びを BAT | SIG | WIFI | BT に(WIFI と SIG の位置を入れ替え)\n * 18: 時計を 1 行に(数字の高さ = マス、秒・日付・曜日を右に 1 行で)\n * 19: カバー横(COVER_WIDE 26x15)とメインの側パネル(SIDE 7x24)を追加。横は縦の配置を詰めて生成、SIDE は予定 + タスク
- * 20: 横の自動配置を幅 8 の縦の帯に流す方式に(見出しと中身の並びを保つ)\n * 21: 20 の流す順を「元の左の列 → 右の列」に\n * 22: SIDE を 14x24 に(メインの残り幅いっぱい)。配置は作り直し\n * 23: SIDE の上 2 行にアプリ 4 本(Chrome / Gmail / LINE / マップ)。窓はその下に開く\n * 24: MAIN を 16x24 の独立した左パネルに(初回はカバーの写し)。左のアプリをタップすると右に窓。SIDE は予定 + タスクだけ\n * 25: DRIVE を組み直す。時計 + YouTube / Spotify / マップの生きたタイル 3 枚(縦 16x5、横 8x8)。下は明るさ・音量用に空ける\n * 26: DRIVE の下に明るさ・音量のスライダー(slider:brightness / slider:volume、幅いっぱい 2 行ずつ)\n * 27: DRIVE の時計の右に BAT | SIG | WIFI | BT(他のページと同じ 2 マスずつ)\n * 28: WORK の計測を文字表示からブロック表示に。並びは BAT | SIG | WIFI | BT
+ * 20: 横の自動配置を幅 8 の縦の帯に流す方式に(見出しと中身の並びを保つ)\n * 21: 20 の流す順を「元の左の列 → 右の列」に\n * 22: SIDE を 14x24 に(メインの残り幅いっぱい)。配置は作り直し\n * 23: SIDE の上 2 行にアプリ 4 本(Chrome / Gmail / LINE / マップ)。窓はその下に開く\n * 24: MAIN を 16x24 の独立した左パネルに(初回はカバーの写し)。左のアプリをタップすると右に窓。SIDE は予定 + タスクだけ\n * 25: DRIVE を組み直す。時計 + YouTube / Spotify / マップの生きたタイル 3 枚(縦 16x5、横 8x8)。下は明るさ・音量用に空ける\n * 26: DRIVE の下に明るさ・音量のスライダー(slider:brightness / slider:volume、幅いっぱい 2 行ずつ)\n * 27: DRIVE の時計の右に BAT | SIG | WIFI | BT(他のページと同じ 2 マスずつ)\n * 28: WORK の計測を文字表示からブロック表示に。並びは BAT | SIG | WIFI | BT\n * 29: 右下の 1 マスを隠しボタンの予約席に。かかっている物は幅(無理なら高さ)を 1 縮める。1x1 は空きへ移す
  * 12: 通信系(BAT/WIFI/SIG/NTF)を時計の右に集約、MEM/STO は最下段 1 行
  * 13: BT を追加。時計の右に BAT WIFI SIG BT(2 マスずつ、濃さで表す) / NTF(4) MEM STO(2 ずつ)
  * 14: WORK の右上に文字表示の BAT WIFI SIG BT(2 マスずつ)。重なる物は空きへ退ける
  * 15: ボードをやめ、中のリンクを 1 本ずつ link モジュールとして展開
  */
-const val LAYOUT_VERSION = 28
+const val LAYOUT_VERSION = 29
 
 /** 旧版を 1 段ずつ移行する。現版に届かなければ null(作り直し) */
 fun migrateLayout(s0: LayoutState, apps: List<AppEntry> = emptyList()): LayoutState? {
@@ -294,6 +294,9 @@ fun migrateLayout(s0: LayoutState, apps: List<AppEntry> = emptyList()): LayoutSt
         var t = s.copy(meters = s.meters.map { if (it.id.startsWith("work-meter-")) it.copy(style = "blocks") else it })
         t = t.seedStatusRow(Page.WORK, listOf("battery", "signal", "wifi", "bluetooth").map { "work-meter-$it" })
         s = t.copy(version = 28)
+    }
+    if (s.version == 28) {
+        s = s.clearReservedCorner().copy(version = 29)
     }
     return s.takeIf { it.version == LAYOUT_VERSION }
 }
@@ -924,3 +927,19 @@ fun LayoutState.seedStatusRow(page: Page, ids: List<String>): LayoutState {
     }
     return s
 }
+
+/** 右下の予約席にかかっている物を退かす(全面・全ページ)。幅を 1 縮め、無理なら高さ、1x1 は空きへ移す */
+fun LayoutState.clearReservedCorner(): LayoutState = copy(layouts = layouts.map { l ->
+    val spec = gridFor(l.face)
+    val corner = spec.reservedCorner ?: return@map l
+    var refs = l.refs
+    for (r in l.refs.filter { it.pos.overlaps(corner) }) {
+        refs = refs.filterNot { it.ref == r.ref }
+        refs = when {
+            r.colSpan > 1 -> refs + r.copy(colSpan = r.colSpan - 1)
+            r.rowSpan > 1 -> refs + r.copy(rowSpan = r.rowSpan - 1)
+            else -> placeInFirstFree(refs, spec, r.ref, 1, 1)
+        }
+    }
+    l.copy(refs = refs)
+})

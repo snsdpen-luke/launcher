@@ -8,9 +8,16 @@ data class GridSpec(val cols: Int, val rows: Int)
 /** マス数 (幅, 高さ) */
 data class Span(val w: Int, val h: Int)
 
+/**
+ * 右下の 1 マスは隠しボタン(ライト・明るさ・音量のパネル)の予約席。モジュールは置けない。
+ * メインの右側(SIDE)にはボタンが無いので予約しない
+ */
+val GridSpec.reservedCorner: GridPos? get() = if (this == SideGrid) null else GridPos(cols - 1, rows - 1)
+
 fun GridPos.fits(spec: GridSpec): Boolean =
     col >= 0 && row >= 0 && colSpan >= 1 && rowSpan >= 1 &&
-        col + colSpan <= spec.cols && row + rowSpan <= spec.rows
+        col + colSpan <= spec.cols && row + rowSpan <= spec.rows &&
+        spec.reservedCorner.let { it == null || !overlaps(it) }
 
 fun GridPos.overlaps(o: GridPos): Boolean =
     col < o.col + o.colSpan && o.col < col + colSpan &&
@@ -61,6 +68,7 @@ fun placeInFirstFree(
 fun vacantCells(refs: List<PlacedRef>, spec: GridSpec): List<GridPos> = buildList {
     for (r in 0 until spec.rows) for (c in 0 until spec.cols) {
         val p = GridPos(c, r)
+        if (p == spec.reservedCorner) continue
         if (refs.none { p.overlaps(it.pos) }) add(p)
     }
 }

@@ -35,6 +35,7 @@ import com.snsdpen.launcher.data.AppEntry
 import com.snsdpen.launcher.model.Face
 import com.snsdpen.launcher.model.GridPos
 import com.snsdpen.launcher.model.GridSpec
+import com.snsdpen.launcher.model.reservedCorner
 import androidx.compose.ui.graphics.Color
 import com.snsdpen.launcher.model.LayoutState
 import com.snsdpen.launcher.model.ModuleEvent
@@ -102,9 +103,24 @@ private fun MosaicFloor(spec: GridSpec, cell: androidx.compose.ui.unit.Dp, gap: 
 private data class Walker(val pos: GridPos, val trail: List<GridPos>, val colorIndex: Int)
 private const val TrailLength = 8
 
+/** 確認用: true にすると昼でも寝る */
+private const val MASCOT_FORCE_NIGHT = false
+
+/** 夜 9 時〜朝 5 時は寝る */
+private fun isSleepTime(): Boolean {
+    if (MASCOT_FORCE_NIGHT) return true
+    val h = java.time.LocalTime.now().hour
+    return h >= 21 || h < 5
+}
+
+/** ごはんの流れ(ミリ秒): 0〜1400 踊る / 1400〜3200 食べる(3 口)/ 3400 で終わり */
+private const val PartyDance = 1400L
+private const val PartyEnd = 3400L
+
 /**
- * 差し色のブロック 1 個が空きマスを 0.7 秒に 1 マスずつ歩き、跡がグレーで残って消える。
- * 状態と描画をここに閉じ、再構成がグリッド全体に波及しないようにする。表示中(RESUMED)だけ動く。
+ * 空きマスを歩く Claude Code のマスコット。0.7 秒に 1 マスずつ歩き、跡が薄く残る。
+ * 夜 9 時〜朝 5 時は寝る(止まって目を閉じ、z が浮かぶ)。タップすると踊ってごはんを食べる(寝ていても起きて食べ、また寝る)。
+ * 状態はこの中に閉じる(グリッド本体で読むと全モジュールが再構成される)。動くのは表示中だけ
  */
 @Composable
 private fun WanderingBlocks(
@@ -115,13 +131,41 @@ private fun WanderingBlocks(
     trail: androidx.compose.ui.graphics.Color,
 ) {
     val walkers = remember { androidx.compose.runtime.mutableStateListOf<Walker>() }
-    com.snsdpen.launcher.ui.WhileResumed(vacant) {
-        walkers.clear()
-        if (vacant.isEmpty()) return@WhileResumed
+    var sleeping by remember { mutableStateOf(isSleepTime()) }
+    var zPhase by remember { mutableStateOf(0) }
+    var partyKey by remember { mutableStateOf(0) }        // タップのたびに増える(ループをやり直す合図)
+    var partyT by remember { mutableStateOf(-1L) }        // ごはんの経過ミリ秒(-1 = していない)
+    com.snsdpen.launcher.ui.WhileResumed(vacant, partyKey) {
+        if (vacant.isEmpty()) { walkers.clear(); return@WhileResumed }
         val rnd = kotlin.random.Random(System.currentTimeMillis())
-        repeat(1) { i -> walkers += Walker(vacant[rnd.nextInt(vacant.size)], emptyList(), i) }
+        // 居場所が空きでなくなっていたら置き直す(タップでやり直す時は今の場所のまま)
+        if (walkers.isEmpty() || walkers.any { it.pos !in vacant }) {
+            walkers.clear()
+            walkers += Walker(vacant[rnd.nextInt(vacant.size)], emptyList(), 0)
+        }
         val set = vacant.map { it.col to it.row }.toSet()
+        // ごはんの途中でやり直しになった(配置が変わった等)なら、ごはんは打ち切る
+        if (partyT > 0L) partyT = -1L
+        // ごはん(タップされた直後だけ)。踊って、食べる
+        if (partyKey > 0 && partyT == 0L) {
+            val t0 = System.currentTimeMillis()
+            while (true) {
+                val t = System.currentTimeMillis() - t0
+                if (t >= PartyEnd) break
+                partyT = t.coerceAtLeast(1L)
+                kotlinx.coroutines.delay(80)
+            }
+            partyT = -1L
+        }
         while (true) {
+            sleeping = isSleepTime()
+            if (sleeping) {
+                // 寝ている: 止まって z を浮かべる。跡は消す
+                if (walkers.isNotEmpty() && walkers[0].trail.isNotEmpty()) walkers[0] = walkers[0].copy(trail = emptyList())
+                zPhase++
+                kotlinx.coroutines.delay(700)
+                continue
+            }
             kotlinx.coroutines.delay(700)
             for (i in walkers.indices) {
                 val w = walkers[i]
@@ -134,6 +178,7 @@ private fun WanderingBlocks(
                 val next = (forward.ifEmpty { around }).let { if (it.isEmpty()) vacant[rnd.nextInt(vacant.size)] else it[rnd.nextInt(it.size)] }
                 walkers[i] = w.copy(pos = next, trail = (listOf(here) + w.trail).take(TrailLength))
             }
+            zPhase++   // 歩く時の脚の左右にも使う
         }
     }
     fun x(c: GridPos) = (cell + gap) * c.col
@@ -144,7 +189,59 @@ private fun WanderingBlocks(
             Box(Modifier.offset(x(c), y(c)).size(cell, cell).background(trail.copy(alpha = a)))
         }
         val color = colors[w.colorIndex % colors.size]
-        com.snsdpen.launcher.ui.ClaudeMark(body = color, ink = trail, modifier = Modifier.offset(x(w.pos), y(w.pos)).size(cell, cell))
+        val t = partyT
+        val partying = t >= 0
+        val dancing = partying && t < PartyDance
+        val eating = partying && t >= PartyDance
+        val beat = (t / 175L).toInt()
+        val bounce = if (dancing && beat % 2 == 0) -(cell * 0.18f) else 0.dp
+        val pose = when {
+            dancing -> com.snsdpen.launcher.ui.MascotPose(armsUp = beat % 2 == 0, happyEyes = true, step = beat % 2)
+            eating -> com.snsdpen.launcher.ui.MascotPose(mouthOpen = (t / 150L) % 2 == 0L, happyEyes = true, step = -1)
+            sleeping -> com.snsdpen.launcher.ui.MascotPose(eyesClosed = true, step = -1)
+            else -> com.snsdpen.launcher.ui.MascotPose(step = zPhase % 2)
+        }
+        val tap = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        Box(
+            Modifier
+                .offset(x(w.pos), y(w.pos) + bounce)
+                .size(cell, cell)
+                .clickable(interactionSource = tap, indication = null) {
+                    if (partyT < 0) { partyT = 0L; partyKey++ }
+                },
+        ) {
+            com.snsdpen.launcher.ui.ClaudeMark(body = color, ink = trail, modifier = Modifier.fillMaxSize(), pose = pose)
+        }
+        // 踊っている間: 頭の上にハート
+        if (dancing) {
+            com.snsdpen.launcher.ui.PixelHeart(
+                color = androidx.compose.ui.graphics.Color(0xFFFF5A7A),
+                modifier = Modifier.offset(x(w.pos) + cell * 0.32f, y(w.pos) - cell * 0.42f + bounce).size(cell * 0.36f),
+            )
+        }
+        // 食べている間: 右横におにぎり。1 口ずつ欠ける
+        if (eating) {
+            val left = when { t < 1800L -> 3; t < 2400L -> 2; t < 3000L -> 1; else -> 0 }
+            com.snsdpen.launcher.ui.FoodBlock(
+                left = left,
+                modifier = Modifier.offset(x(w.pos) + cell * 0.88f, y(w.pos) + cell * 0.22f).size(cell * 0.62f),
+            )
+        }
+        // 寝ている間: z が 3 つ、ずれて浮かんでは消える
+        if (sleeping && !partying) {
+            for (k in 0 until 3) {
+                val ph = (zPhase + k * 2) % 6                 // 0..5
+                val a = when (ph) { 0 -> 0.25f; 1 -> 0.6f; 2 -> 0.9f; 3 -> 0.7f; 4 -> 0.35f; else -> 0f }
+                if (a <= 0f) continue
+                Text(
+                    "z",
+                    color = trail.copy(alpha = a * 0.8f),
+                    fontSize = (9 + ph).sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    modifier = Modifier.offset(x(w.pos) + cell * (0.70f + ph * 0.08f), y(w.pos) - cell * (0.30f + ph * 0.14f)),
+                )
+            }
+        }
     }
 }
 
@@ -172,6 +269,8 @@ fun ModuleGrid(
     onArrange: (List<PlacedRef>) -> Unit,
     onResize: (ref: String, w: Int, h: Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** 右下の予約席の隠しボタン(null なら出さない) */
+    onQuick: (() -> Unit)? = null,
 ) {
     val pal = LocalPalette.current
     BoxWithConstraints(modifier) {
@@ -229,6 +328,18 @@ fun ModuleGrid(
                         ) { onSelect(null) },
                 )
             }
+        }
+
+        // ---- 右下の予約席: 隠しボタン(薄い印。押すとライト・明るさ・音量のパネル)。編集中は出さない ----
+        val corner = spec.reservedCorner
+        if (onQuick != null && corner != null && !editMode) {
+            Box(
+                Modifier
+                    .offset(xOf(corner), yOf(corner))
+                    .size(cellW, cellH)
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onQuick),
+                contentAlignment = Alignment.Center,
+            ) { com.snsdpen.launcher.ui.SlidersGlyph(pal.fg.copy(alpha = 0.28f), cellW * 0.42f) }
         }
 
         // ---- ドラッグ中の落とし先(置けるならアクセント、置けないなら赤) ----
