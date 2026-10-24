@@ -82,7 +82,7 @@ object TrinityWeb {
     } }
 
     /** ページに戻ってきたとき: 前の読み込みが失敗していたら読み直す。成功していればそのまま(Trinity 側が自分で新着を取りに行く) */
-    fun resume() { view?.let { if (it.url.isNullOrEmpty() || it.progress < 100) it.reload() else it.evaluateJavascript("window.loadTasks && loadTasks()", null) } }
+    fun resume() { view?.let { if (it.url.isNullOrEmpty() || it.progress < 100) it.reload() else it.evaluateJavascript("window.checkUiVer && checkUiVer(); window.loadTasks && loadTasks()", null) } }
 }
 
 @Composable
