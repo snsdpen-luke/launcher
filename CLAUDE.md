@@ -45,6 +45,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 19)
   URL は **local.properties の `trinity.url`**(鍵つき。**この repo は公開なのでコードに書かない**)→ BuildConfig.TRINITY_URL。空なら従来の手元のタスク。
   WebView が指を取るので、横スワイプは Trinity の画面が拾って JS の `Launcher.page(next)` で返す。confirm/alert/prompt は WebChromeClient で Activity に出す(無いと confirm が常に「いいえ」)。
   Trinity 以外の URL(Claude アプリの入口など)は外のアプリで開く
+- **書体(v0.38)**: IBM Plex Sans JP(`res/font/ibm_plex_sans_jp_{regular,medium,bold}.ttf`、SIL OFL 1.1。条件の文は `licenses/` と `assets/licenses/` に同梱。**消さない**)に詰め組み `palt` と -0.01em。`Theme.kt` の `appTypography()` を MaterialTheme に渡す。時計の数字(TextMeasurer)は対象外。TASK ページ(Trinity)も同じ書体
 - 配色はページごとの `Palette`(ui/Theme.kt)。画面もモジュールも `LocalPalette.current` を読む
   - 1 ページに複数の色味を持てる(`ThemeOptions`)。フッター右のページ名タップで順に切替、選択は DataStore の `theme_<PAGE>`
   - PRIVATE は **NATURE**(深い青緑の海の地に白文字、青緑 #00AA90 と海の青が差し色。既定)→ **LEMON**(Ultimate Gray #C5C1C0 の紙に鉄色の文字、Illuminating #F5DF4D のチップ、DENIM #1A2930 が 2 色目。昼向き。白地は「ブロックが目立つ」で不採用)。どちらも見出しは**床のブロックと同じ形のチップ**(1 マスずつ独立したブロックで目地を見せる。幅は文字に合わせてマス数を切り上げ、`labelChips` の色を 40% で透かす。文字はその上に fg で)、空きマスをマスコットが歩く。アイコンは色付き。VIVID(色の組の時間回転と■シャッフル)・FOREST・BLACK・CREAM・紺の COLORFUL は不採用(2026-09-22)
