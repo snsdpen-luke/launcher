@@ -87,11 +87,15 @@ fun HomeScreen(
     side: HomePane? = null,
     /** 隠しパネル(ライト・明るさ・音量)を開く */
     onOpenQuick: () -> Unit = {},
+    /** TASK ページの Trinity の画面から届いた横スワイプ(true = 次のページ) */
+    onTrinitySwipe: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val p = LocalPalette.current
     Column(modifier.fillMaxSize().background(p.bg)) {
-        if (side != null) {
+        // TASK はグリッドを持たない。全面が Trinity の「秘書とタスク」。フッターは他のページと同じ
+        if (page == Page.TASK) TrinityPage(onSwipe = onTrinitySwipe, modifier = Modifier.weight(1f).fillMaxWidth())
+        else if (side != null) {
             // カバー縦のマス目を高さいっぱいに置き、残りの幅を側パネルに
             androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                 val cell = ((maxHeight - com.snsdpen.launcher.ui.GridGap * (spec.rows - 1)) / spec.rows).coerceAtLeast(0.dp)

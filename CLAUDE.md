@@ -38,7 +38,13 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 19)
 - **他アプリを「隣」に出す**: ホームは分割画面の相棒になれない(`type=home nonResizable`)。Samsung の自由配置(ポップアップ)ウィンドウを使う: **MAIN(左)か SIDE(右)のアプリをタップ** → `ModuleEvent.LaunchInPane` → `launchApp(context, app, bounds)` が `ActivityOptions.setLaunchBounds` で **右側(SIDE の矩形、`HomePane.onBounds`)に窓を出す**。SIDE にアプリ行があればその下から。ランチャーは背景に残る。カバーでは全画面起動。`POPUP_DEBUG = true` でカバーでも右半分に出して確認できる
   - 2 画面モード(非 HOME の別 Activity `PanelActivity` を分割の片側に置き、`FLAG_ACTIVITY_LAUNCH_ADJACENT` で反対側に開く)は v0.37 で試した。Android 17 ではアプリから分割が始まり、反対側の差し替えも動いたが、剛さんが「挙動がおかしい」として 2026-10-18 に取り下げた
 - グリッド寸法: カバー **16x24** / メイン 22x14(model/Surface.kt、v9)。**マスは正方形**で一辺は幅と高さの小さい方から決める(カバー 555x876dp → 1 マス ≈ 28.5dp)。**マス目全体は左右中央**に置き、余りは両側の余白(半端なマスは作らない)
-- ページ `Page { PRIVATE, WORK, DRIVE }`。配置は (Face, Page) ごと、定義(フォルダ/リンク/ボード)は共有
+- ページ `Page { PRIVATE, WORK, TASK, DRIVE }`。配置は (Face, Page) ごと、定義(フォルダ/リンク/ボード)は共有
+- **TASK ページ(v0.38)**: グリッドを持たず、全面が Trinity(Mac の秘書とタスク帳)の `?embed=1`(ui/TrinityPage.kt、WebView を 1 個だけ作って使い回す)。
+  **タスクの正本は Trinity の帳面(all-db の BOARD.md)に一本化**。WORK の `TasksModule` は Trinity の要点(判断待ち・剛さんの番)を映すだけで、押すと TASK へ。
+  初回に手元の未完了タスクを一度だけ Trinity へ送る(`Trinity.migrateOnce`、印は SharedPreferences `trinity/migrated`。手元のタスクは消さない)。
+  URL は **local.properties の `trinity.url`**(鍵つき。**この repo は公開なのでコードに書かない**)→ BuildConfig.TRINITY_URL。空なら従来の手元のタスク。
+  WebView が指を取るので、横スワイプは Trinity の画面が拾って JS の `Launcher.page(next)` で返す。confirm/alert/prompt は WebChromeClient で Activity に出す(無いと confirm が常に「いいえ」)。
+  Trinity 以外の URL(Claude アプリの入口など)は外のアプリで開く
 - 配色はページごとの `Palette`(ui/Theme.kt)。画面もモジュールも `LocalPalette.current` を読む
   - 1 ページに複数の色味を持てる(`ThemeOptions`)。フッター右のページ名タップで順に切替、選択は DataStore の `theme_<PAGE>`
   - PRIVATE は **NATURE**(深い青緑の海の地に白文字、青緑 #00AA90 と海の青が差し色。既定)→ **LEMON**(Ultimate Gray #C5C1C0 の紙に鉄色の文字、Illuminating #F5DF4D のチップ、DENIM #1A2930 が 2 色目。昼向き。白地は「ブロックが目立つ」で不採用)。どちらも見出しは**床のブロックと同じ形のチップ**(1 マスずつ独立したブロックで目地を見せる。幅は文字に合わせてマス数を切り上げ、`labelChips` の色を 40% で透かす。文字はその上に fg で)、空きマスをマスコットが歩く。アイコンは色付き。VIVID(色の組の時間回転と■シャッフル)・FOREST・BLACK・CREAM・紺の COLORFUL は不採用(2026-09-22)

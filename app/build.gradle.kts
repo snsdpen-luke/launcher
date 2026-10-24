@@ -1,3 +1,9 @@
+import java.util.Properties
+
+// Trinity の鍵つき URL は local.properties(git 管理外)の trinity.url から焼き込む。この repo は公開なので、コードには書かない
+val localProps = Properties().apply { rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
+val trinityUrl: String = localProps.getProperty("trinity.url", "")
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,8 +19,9 @@ android {
         applicationId = "com.snsdpen.launcher"
         minSdk = 31
         targetSdk = 35
-        versionCode = 36
-        versionName = "0.36.1"   // UI は BuildConfig.VERSION_NAME を読む。ここだけ上げればよい
+        versionCode = 38
+        versionName = "0.38.0"   // UI は BuildConfig.VERSION_NAME を読む。ここだけ上げればよい
+        buildConfigField("String", "TRINITY_URL", "\"${trinityUrl.replace("\\", "").replace("\"", "")}\"")
     }
 
     buildTypes {

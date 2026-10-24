@@ -15,9 +15,10 @@ enum class Face { COVER, MAIN, COVER_WIDE, SIDE }
 /**
  * ユーザーが横スワイプで切り替えるページ(用途)。順にループする。
  * DRIVE も特別な画面ではなく、同じグリッドの 1 ページ。専用計器はモジュールとして足す。
+ * TASK だけはグリッドを持たず、全面が Trinity の「秘書とタスク」(WebView、ui/TrinityPage.kt)。v0.38
  */
 enum class Page {
-    PRIVATE, WORK, DRIVE;
+    PRIVATE, WORK, TASK, DRIVE;
 
     fun next(): Page = entries[(ordinal + 1) % entries.size]
     fun prev(): Page = entries[(ordinal - 1 + entries.size) % entries.size]

@@ -175,6 +175,10 @@ fun LauncherApp(surface: Surface) {
         selectedRef = null
     }
 
+    val tasksForMigration = layout?.tasks
+    androidx.compose.runtime.LaunchedEffect(tasksForMigration != null) {
+        tasksForMigration?.let { com.snsdpen.launcher.data.Trinity.migrateOnce(context, it) }
+    }
     val onEvent: (ModuleEvent) -> Unit = { e ->
         when (e) {
             is ModuleEvent.OpenFolder -> openFolderId = e.id
@@ -217,6 +221,7 @@ fun LauncherApp(surface: Surface) {
             is ModuleEvent.ToggleTask -> store.update { it.toggleTask(e.id) }
             is ModuleEvent.EditTask -> editingTaskId = e.id
             ModuleEvent.ClearDoneTasks -> store.update { it.clearDoneTasks() }
+            ModuleEvent.OpenTrinity -> { forward = true; com.snsdpen.launcher.data.AutoPage.markManual(context); store.setPage(com.snsdpen.launcher.model.Page.TASK) }
         }
     }
 
@@ -311,6 +316,7 @@ fun LauncherApp(surface: Surface) {
                     onCycleTheme = { store.setTheme(p, nextTheme(p, themes[p])) },
                     onOpenDrawer = { drawerOpen = true },
                     onOpenQuick = { quickPanel = true },
+                    onTrinitySwipe = { next -> goPage.value(next) },
                     onEvent = onEvent,
                     notifCounts = notifCounts,
                     onArrange = { refs -> store.update { it.withPlaced(face, p, refs) } },

@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.size
@@ -47,8 +49,8 @@ val TasksSpec = ModuleSpec(
     name = "TASKS",
     defaultSize = { face -> if (face == Face.COVER) Span(8, 10) else Span(8, 8) },
     minSize = { Span(4, 2) },
-    // 枠タップ(行の外)は追加へ
-    onTap = { _, emit -> emit(ModuleEvent.AddTask) },
+    // 枠タップ(行の外)は追加へ。Trinity があれば TASK ページ(秘書)へ
+    onTap = { _, emit -> emit(if (com.snsdpen.launcher.data.Trinity.enabled) ModuleEvent.OpenTrinity else ModuleEvent.AddTask) },
     content = { TasksModule(it) },
 )
 
@@ -63,6 +65,8 @@ private val BoxSize = 18.dp
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TasksModule(scope: ModuleScope) {
+    // v0.38: タスクは Trinity の帳面に一本化。ランチャーは要点を映すだけ(判断待ち・剛さんの番)。Trinity が未設定なら従来の手元のタスク
+    if (com.snsdpen.launcher.data.Trinity.enabled) { TrinityTasks(scope); return }
     val p = LocalPalette.current
     val tasks = scope.layout.tasksInOrder()
     val open = tasks.count { !it.done }
@@ -199,5 +203,85 @@ private fun dateLabel(start: String?, due: String?): String? {
         d != null -> d
         s != null -> "$s–"
         else -> null
+    }
+}
+
+/**
+ * Trinity の要点。上に「判断待ち」(部下が止まって剛さんの返事を待っている。赤)、下に「剛さんの番」(期限の近い順)。
+ * どこを押しても TASK ページ(秘書)へ。判断待ちの行だけは Claude アプリの入口へ直接。表示中だけ 1 分ごとに読み直す
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TrinityTasks(scope: ModuleScope) {
+    val p = LocalPalette.current
+    val home by com.snsdpen.launcher.data.Trinity.home.collectAsState()
+    com.snsdpen.launcher.ui.WhileResumed {
+        while (true) { com.snsdpen.launcher.data.Trinity.refreshHome(); kotlinx.coroutines.delay(60_000) }
+    }
+    val edit = scope.editMode
+    val cell = scope.cell
+    val rowH = cell + com.snsdpen.launcher.ui.GridGap
+    val red = androidx.compose.ui.graphics.Color(0xFFC0392B)
+    fun tap(m: Modifier, onClick: () -> Unit) = if (edit) m else m.combinedClickable(
+        interactionSource = MutableInteractionSource(), indication = null,
+        onClick = onClick, onLongClick = { scope.emit(ModuleEvent.EnterEdit) })
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val rows = ((maxHeight - HeaderH) / rowH).toInt().coerceAtLeast(0)
+        val waiting = home.waiting.take(rows)
+        val mine = home.mine.take((rows - waiting.size).coerceAtLeast(0))
+        val hidden = (home.waiting.size - waiting.size) + (home.mineCount - mine.size)
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                tap(Modifier.fillMaxWidth().height(HeaderH).padding(start = 8.dp)) { scope.emit(ModuleEvent.OpenTrinity) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Marker(p.fg)
+                Spacer(Modifier.width(10.dp))
+                Text("TASK", color = p.fg, fontSize = 13.sp)
+                Text("  剛 ${home.mineCount} · AI ${home.aiCount}", color = p.fgDim, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                if (hidden > 0) Text("+$hidden", color = p.fgDim, fontSize = 10.sp, modifier = Modifier.padding(end = 6.dp))
+                if (!edit) HeaderAction("秘書 →", p.fg) { scope.emit(ModuleEvent.OpenTrinity) }
+            }
+            if (home.at == 0L) {
+                Text(if (home.error != null) "Mac に届かない(Tailscale はオン?)" else "読み込み中…", color = p.fgDim, fontSize = 11.sp,
+                    modifier = Modifier.padding(start = 26.dp, top = 6.dp))
+            }
+            val today = LocalDate.now()
+            waiting.forEach { w ->
+                Row(
+                    tap(Modifier.fillMaxWidth().height(rowH).padding(end = 8.dp)) {
+                        scope.emit(if (w.link.isNotBlank()) ModuleEvent.OpenLink(w.link) else ModuleEvent.OpenTrinity)
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(cell), contentAlignment = Alignment.Center) { Box(Modifier.size(10.dp).background(red)) }
+                    Spacer(Modifier.width(4.dp))
+                    Text("判断待ち · ${w.title}", color = red, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+                }
+            }
+            mine.forEach { t ->
+                val due = parseIsoDate(t.due.ifBlank { null })
+                val overdue = due != null && due.isBefore(today)
+                val dueToday = due != null && due.isEqual(today)
+                Row(
+                    tap(Modifier.fillMaxWidth().height(rowH).padding(end = 8.dp)) { scope.emit(ModuleEvent.OpenTrinity) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(cell), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(BoxSize).border(if (overdue) 2.dp else 1.5.dp, if (overdue) com.snsdpen.launcher.ui.NotifOrange else p.fg))
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(t.title, color = p.fg, fontSize = 13.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (due != null) Text(
+                        due.format(ShortDate),
+                        color = if (overdue) com.snsdpen.launcher.ui.NotifOrange else if (dueToday) p.fg else p.fgDim,
+                        fontSize = 10.sp,
+                        fontWeight = if (overdue || dueToday) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+            }
+        }
     }
 }

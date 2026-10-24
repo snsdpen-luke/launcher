@@ -163,6 +163,7 @@ data class ThemeOption(val name: String, val palette: Palette)
 val ThemeOptions: Map<Page, List<ThemeOption>> = mapOf(
     Page.PRIVATE to listOf(ThemeOption("NATURE", NaturePalette), ThemeOption("LEMON", LemonPalette)),
     Page.WORK to listOf(ThemeOption("WHITE", WorkPalette)),
+    Page.TASK to listOf(ThemeOption("WHITE", WorkPalette)),   // Trinity の画面が白地なので WORK と同じ
     Page.DRIVE to listOf(ThemeOption("NAVY", DrivePalette)),
 )
 

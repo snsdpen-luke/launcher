@@ -71,6 +71,8 @@ sealed interface ModuleEvent {
     data class ToggleTask(val id: String) : ModuleEvent
     data class EditTask(val id: String) : ModuleEvent
     data object ClearDoneTasks : ModuleEvent
+    /** TASK ページ(Trinity の秘書とタスク)へ */
+    data object OpenTrinity : ModuleEvent
 }
 
 /**

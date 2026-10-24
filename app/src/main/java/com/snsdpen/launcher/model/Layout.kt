@@ -379,7 +379,9 @@ fun defaultPage(face: Face, page: Page, folders: List<FolderDef>): List<PlacedRe
         Page.PRIVATE -> folders.map { it.id }
         Page.WORK -> listOf("work", "comms")
         Page.DRIVE -> listOf("nav", "media")
+        Page.TASK -> emptyList()   // グリッドを使わない
     }
+    if (page == Page.TASK) return refs
     add(REF_CLOCK)
     if (page == Page.WORK) {
         add(boardRef(DEFAULT_BOARD_ID))
