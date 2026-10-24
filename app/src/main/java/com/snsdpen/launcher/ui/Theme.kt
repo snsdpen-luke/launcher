@@ -1,5 +1,7 @@
 package com.snsdpen.launcher.ui
 
+import androidx.compose.ui.unit.em
+
 import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.material3.darkColorScheme
@@ -185,6 +187,37 @@ val LocalPalette = staticCompositionLocalOf { NaturePalette }
 
 val GridGap = 4.dp
 
+/**
+ * 書体：端末に入っている Noto Sans CJK（日本語）に「詰め組み」(palt) をかける（2026-10-24 剛さんが見本の A を選んだ）。
+ * Galaxy の既定は Samsung の書体(SECCJK)なので、/system/fonts の Noto を直接読む。無い端末では既定の書体のまま。
+ * 時計など TextMeasurer で自分で描く文字は対象外(数字の高さを測って合わせているため)。
+ */
+val AppFontFamily: androidx.compose.ui.text.font.FontFamily? by lazy {
+    runCatching {
+        val f = java.io.File("/system/fonts/NotoSansCJK-Regular.ttc")
+        if (!f.exists()) return@runCatching null
+        val base = android.graphics.Typeface.Builder(f).setTtcIndex(0).build()   // ttc の 0 番は日本語(JP)
+        androidx.compose.ui.text.font.FontFamily(base)
+    }.getOrNull()
+}
+
+/** 全部の Text に効く既定の文字設定(書体＋詰め組み)。色や大きさは各所が指定する */
+fun appTypography(): androidx.compose.material3.Typography {
+    val t = androidx.compose.material3.Typography()
+    fun androidx.compose.ui.text.TextStyle.tune() = copy(
+        fontFamily = AppFontFamily ?: fontFamily,
+        fontFeatureSettings = "palt",
+        letterSpacing = (-0.01f).em,
+    )
+    return t.copy(
+        displayLarge = t.displayLarge.tune(), displayMedium = t.displayMedium.tune(), displaySmall = t.displaySmall.tune(),
+        headlineLarge = t.headlineLarge.tune(), headlineMedium = t.headlineMedium.tune(), headlineSmall = t.headlineSmall.tune(),
+        titleLarge = t.titleLarge.tune(), titleMedium = t.titleMedium.tune(), titleSmall = t.titleSmall.tune(),
+        bodyLarge = t.bodyLarge.tune(), bodyMedium = t.bodyMedium.tune(), bodySmall = t.bodySmall.tune(),
+        labelLarge = t.labelLarge.tune(), labelMedium = t.labelMedium.tune(), labelSmall = t.labelSmall.tune(),
+    )
+}
+
 /** ページのパレットを配る。Text の既定色も合わせる */
 @Composable
 fun PageTheme(page: Page, variant: String? = null, content: @Composable () -> Unit) {
@@ -195,7 +228,7 @@ fun PageTheme(page: Page, variant: String? = null, content: @Composable () -> Un
         darkColorScheme(background = p.bg, surface = p.bg, onBackground = p.fg, onSurface = p.fg, primary = p.accent)
     }
     CompositionLocalProvider(LocalPalette provides p) {
-        MaterialTheme(colorScheme = scheme, content = content)
+        MaterialTheme(colorScheme = scheme, typography = appTypography(), content = content)
     }
 }
 
@@ -209,6 +242,7 @@ fun LauncherTheme(content: @Composable () -> Unit) {
             onBackground = NaturePalette.fg,
             onSurface = NaturePalette.fg,
         ),
+        typography = appTypography(),
         content = content,
     )
 }
