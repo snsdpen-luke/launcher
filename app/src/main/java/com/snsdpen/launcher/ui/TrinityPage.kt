@@ -96,9 +96,12 @@ fun TrinityPage(onSwipe: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     }
     val swipe = rememberUpdatedState(onSwipe)
     DisposableEffect(Unit) {
-        TrinityWeb.onSwipe = { swipe.value(it) }
+        // ページの切り替えでは「新しい TASK が登録 → 古い TASK が片付け」の順に動くことがある。
+        // 片付けで無条件に消すと、新しい方の登録まで消えて横スワイプが効かなくなる(2026-10-24 実機で発覚)。自分の登録だけ消す
+        val mine: (Boolean) -> Unit = { swipe.value(it) }
+        TrinityWeb.onSwipe = mine
         TrinityWeb.resume()
-        onDispose { TrinityWeb.onSwipe = null }
+        onDispose { if (TrinityWeb.onSwipe === mine) TrinityWeb.onSwipe = null }
     }
     val context = LocalContext.current
     AndroidView(
