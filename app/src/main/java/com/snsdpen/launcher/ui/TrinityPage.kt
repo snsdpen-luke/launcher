@@ -49,6 +49,7 @@ object TrinityWeb {
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     fun get(context: Context): WebView { ctx.baseContext = context; return view ?: WebView(ctx).also { w ->
+        if (com.snsdpen.launcher.BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)   // Mac の Chrome の chrome://inspect から覗ける
         w.settings.javaScriptEnabled = true
         w.settings.domStorageEnabled = true            // Trinity は localStorage に開いた部屋などを覚える
         w.overScrollMode = WebView.OVER_SCROLL_NEVER

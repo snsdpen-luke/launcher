@@ -263,8 +263,9 @@ fun LauncherApp(surface: Surface) {
             Modifier
                 .fillMaxSize()
                 .then(
-                    // 横スワイプ=ページ切替(ループ)、上スワイプ=ドロワー。編集モード中は付けない
-                    if (!editMode) Modifier.pointerInput(Unit) {
+                    // 横スワイプ=ページ切替(ループ)、上スワイプ=ドロワー。編集モード中は付けない。
+                    // TASK でも付けない: ここで指を食うと Trinity(WebView)が縦にスクロールできない。TASK のページ送りは Trinity の画面が Launcher.page で返す
+                    if (!editMode && page != com.snsdpen.launcher.model.Page.TASK) Modifier.pointerInput(Unit) {
                         var dx = 0f
                         var dy = 0f
                         detectDragGestures(
