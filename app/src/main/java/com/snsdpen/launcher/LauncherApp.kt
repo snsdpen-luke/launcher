@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
@@ -264,8 +265,19 @@ fun LauncherApp(surface: Surface) {
                 .fillMaxSize()
                 .then(
                     // 横スワイプ=ページ切替(ループ)、上スワイプ=ドロワー。編集モード中は付けない。
-                    // TASK でも付けない: ここで指を食うと Trinity(WebView)が縦にスクロールできない。TASK のページ送りは Trinity の画面が Launcher.page で返す
-                    if (!editMode && page != com.snsdpen.launcher.model.Page.TASK) Modifier.pointerInput(Unit) {
+                    // TASK は「横だけ」を受ける: 縦は取らないので Trinity(WebView)は縦にスクロールできる。
+                    // ページ送りは必ずランチャー自身が受ける。Trinity の画面に頼ると、Mac に届かない(外出先で Tailscale が切れた等)ときに
+                    // TASK から出られなくなる(2026-10-25 剛さんが外出先で閉じ込められた)
+                    if (editMode) Modifier
+                    else if (page == com.snsdpen.launcher.model.Page.TASK) Modifier.pointerInput(page) {
+                        var dx = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dx = 0f },
+                            onHorizontalDrag = { change, amount -> dx += amount; change.consume() },
+                            onDragEnd = { if (abs(dx) > PAGE_SWIPE_PX) goPage.value(dx < 0) },
+                        )
+                    }
+                    else Modifier.pointerInput(page) {
                         var dx = 0f
                         var dy = 0f
                         detectDragGestures(
@@ -282,7 +294,7 @@ fun LauncherApp(surface: Surface) {
                                 }
                             },
                         )
-                    } else Modifier
+                    }
                 ),
         ) {
             AnimatedContent(
@@ -317,7 +329,6 @@ fun LauncherApp(surface: Surface) {
                     onCycleTheme = { store.setTheme(p, nextTheme(p, themes[p])) },
                     onOpenDrawer = { drawerOpen = true },
                     onOpenQuick = { quickPanel = true },
-                    onTrinitySwipe = { next -> goPage.value(next) },
                     onEvent = onEvent,
                     notifCounts = notifCounts,
                     onArrange = { refs -> store.update { it.withPlaced(face, p, refs) } },

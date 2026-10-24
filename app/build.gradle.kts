@@ -19,8 +19,8 @@ android {
         applicationId = "com.snsdpen.launcher"
         minSdk = 31
         targetSdk = 35
-        versionCode = 38
-        versionName = "0.38.0"   // UI は BuildConfig.VERSION_NAME を読む。ここだけ上げればよい
+        versionCode = 39
+        versionName = "0.38.1"   // UI は BuildConfig.VERSION_NAME を読む。ここだけ上げればよい
         buildConfigField("String", "TRINITY_URL", "\"${trinityUrl.replace("\\", "").replace("\"", "")}\"")
     }
 
