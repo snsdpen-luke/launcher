@@ -62,6 +62,7 @@ import com.snsdpen.launcher.model.deleteLink
 import com.snsdpen.launcher.model.deleteTask
 import com.snsdpen.launcher.model.faceOf
 import com.snsdpen.launcher.model.gridFor
+import com.snsdpen.launcher.model.addSingleRef
 import com.snsdpen.launcher.model.linksOf
 import com.snsdpen.launcher.model.removeRef
 import com.snsdpen.launcher.model.resizeRef
@@ -135,6 +136,13 @@ fun LauncherApp(surface: Surface) {
     }
     // 権限リクエスト(Activity の上でだけ使える。オーバーレイ面では別経路が要る)
     val calendarPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refreshTick++ }
+    // ページの自動切り替え(時間割)。ホームに戻った時と、表示中の 1 分ごと
+    com.snsdpen.launcher.ui.WhileResumed(Unit) {
+        while (true) {
+            com.snsdpen.launcher.data.AutoPage.tick(context)
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
     // 再生情報(メディアセッション)は表示中だけ読む
     com.snsdpen.launcher.ui.WhileResumed(Unit) {
         com.snsdpen.launcher.data.MediaNow.start(context)
@@ -216,6 +224,7 @@ fun LauncherApp(surface: Surface) {
     val pageLatest = rememberUpdatedState(page)
     val goPage = rememberUpdatedState<(Boolean) -> Unit> { next ->
         forward = next
+        com.snsdpen.launcher.data.AutoPage.markManual(context)
         store.setPage(if (next) pageLatest.value.next() else pageLatest.value.prev())
     }
     val openDrawer = rememberUpdatedState { drawerOpen = true }
@@ -381,6 +390,8 @@ fun LauncherApp(surface: Surface) {
                 onTile = { addSheet = false; tilePicker = true },
                 onLink = { addSheet = false; linkDialog = LinkDef("", "", "") },
                 onClose = { addSheet = false },
+                onNext = { addSheet = false; store.update { it.addSingleRef(activeFace, page, com.snsdpen.launcher.model.REF_NEXT, 12, 1) } },
+                onTimer = { addSheet = false; store.update { it.addSingleRef(activeFace, page, com.snsdpen.launcher.model.REF_TIMER, 8, 1) } },
             )
         }
 

@@ -110,6 +110,8 @@ object ModuleRegistry {
         CalendarSpec,
         TasksSpec,
         com.snsdpen.launcher.ui.modules.SliderSpec,
+        com.snsdpen.launcher.ui.modules.NextEventSpec,
+        com.snsdpen.launcher.ui.modules.TimerSpec,
     )
     private val byKind = all.associateBy { it.kind }
 

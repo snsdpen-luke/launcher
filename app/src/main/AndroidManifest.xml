@@ -10,6 +10,11 @@
 
     <!-- カレンダーの予定を読む(CALENDAR モジュール。無ければ日付だけ出す) -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- 授業タイマー: 終わりを時間どおりに起こす / おやすみモード / 震え -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- 起動可能アプリの列挙(queryIntentActivities)に必須 -->
     <queries>
@@ -57,6 +62,16 @@
             </intent-filter>
         </activity>
         <!-- 通知の件数(ステータスバーを隠した代わり)。設定画面で「通知へのアクセス」を手動オン -->
+        <receiver android:name=".data.TimerReceiver" android:exported="false" />
+
+        <!-- 車の Bluetooth に繋がったら DRIVE へ(ACL の放送はマニフェストで受けられる) -->
+        <receiver android:name=".data.CarReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="android.bluetooth.device.action.ACL_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".notif.NotifListener"
             android:exported="false"

@@ -28,8 +28,9 @@ data class AppEntry(
     val category: Int,
 )
 
-/** 自分のホーム入口。コンポーネント単位で除外する(パッケージごと除外すると将来の分割パネル入口も消える) */
 private const val HOME_ACTIVITY = "com.snsdpen.launcher.MainActivity"
+
+/** 自分のホーム入口。コンポーネント単位で除外する(パッケージごと除外すると将来の分割パネル入口も消える) */
 
 fun loadLaunchableApps(context: Context): List<AppEntry> {
     val pm = context.packageManager

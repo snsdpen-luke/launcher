@@ -78,7 +78,7 @@ private fun SheetRow(label: String, hint: String, onClick: () -> Unit) {
 
 /** 何を足すか */
 @Composable
-fun AddSheet(onApp: () -> Unit, onLabel: () -> Unit, onTile: () -> Unit, onLink: () -> Unit, onClose: () -> Unit) {
+fun AddSheet(onApp: () -> Unit, onLabel: () -> Unit, onTile: () -> Unit, onLink: () -> Unit, onClose: () -> Unit, onNext: () -> Unit = {}, onTimer: () -> Unit = {}) {
     val p = LocalPalette.current
     BottomSheetFrame(onClose) {
         Text("ADD", color = p.fgDim, fontSize = 11.sp)
@@ -86,6 +86,8 @@ fun AddSheet(onApp: () -> Unit, onLabel: () -> Unit, onTile: () -> Unit, onLink:
         SheetRow("LABEL", "見出しの行", onLabel)
         SheetRow("METER", "床のタイル(ブロック数で表す)", onTile)
         SheetRow("LINK", "URL を 1 本", onLink)
+        SheetRow("NEXT", "次の予定のカウントダウン", onNext)
+        SheetRow("TIMER", "授業タイマー(おやすみモード付き)", onTimer)
     }
 }
 
