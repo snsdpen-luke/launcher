@@ -15,6 +15,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -234,6 +239,21 @@ fun LauncherApp(surface: Surface) {
         store.setPage(if (next) pageLatest.value.next() else pageLatest.value.prev())
     }
     val openDrawer = rememberUpdatedState { drawerOpen = true }
+    // 指についてくる横ずれ(px)。離したら、ページを変える(今の画面を外へ出し、次の画面を反対側から入れる)か、元へ戻す
+    val swipeX = remember { androidx.compose.animation.core.Animatable(0f) }
+    var swipeW by remember { mutableStateOf(1f) }
+    var dragSwitch by remember { mutableStateOf(false) }   // 指で送ったときは AnimatedContent の動きを使わない(自前で動かす)
+    val swipeScope = rememberCoroutineScope()
+    fun commitSwipe(next: Boolean) { swipeScope.launch {
+        val out = if (next) -swipeW else swipeW
+        swipeX.animateTo(out, tween(140))
+        dragSwitch = true
+        goPage.value(next)
+        swipeX.snapTo(-out)
+        swipeX.animateTo(0f, tween(200))
+        dragSwitch = false
+    } }
+    fun cancelSwipe() { swipeScope.launch { swipeX.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 500f)) } }
 
     // ページの地色を補間し、白基調ではステータスバーのアイコンを黒にする
     val palette = paletteFor(page, themes[page])
@@ -263,46 +283,57 @@ fun LauncherApp(surface: Surface) {
         Box(
             Modifier
                 .fillMaxSize()
+                .onSizeChanged { swipeW = it.width.toFloat().coerceAtLeast(1f) }
                 .then(
                     // 横スワイプ=ページ切替(ループ)、上スワイプ=ドロワー。編集モード中は付けない。
-                    // TASK は「横だけ」を受ける: 縦は取らないので Trinity(WebView)は縦にスクロールできる。
-                    // ページ送りは必ずランチャー自身が受ける。Trinity の画面に頼ると、Mac に届かない(外出先で Tailscale が切れた等)ときに
-                    // TASK から出られなくなる(2026-10-25 剛さんが外出先で閉じ込められた)
+                    // 2026-10-25: 指に合わせて画面が左右についてくる。画面幅の3割を超えるか、速く払えばページが変わる。手前で離せば戻る
+                    // (前は 100px≒4mm 動かしただけで切り替わり、敏感すぎた)。
+                    // TASK は縦を取らない(Trinity の WebView が縦にスクロールするため)。ページ送りは必ずランチャー自身が受ける
+                    // (Trinity に頼ると、Mac に届かないとき TASK から出られなくなる。2026-10-25 外出先で閉じ込められた)
                     if (editMode) Modifier
-                    else if (page == com.snsdpen.launcher.model.Page.TASK) Modifier.pointerInput(page) {
-                        var dx = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = { dx = 0f },
-                            onHorizontalDrag = { change, amount -> dx += amount; change.consume() },
-                            onDragEnd = { if (abs(dx) > PAGE_SWIPE_PX) goPage.value(dx < 0) },
-                        )
-                    }
                     else Modifier.pointerInput(page) {
-                        var dx = 0f
-                        var dy = 0f
-                        detectDragGestures(
-                            onDragStart = { dx = 0f; dy = 0f },
-                            onDrag = { change, amount ->
-                                dx += amount.x
-                                dy += amount.y
-                                change.consume()
-                            },
-                            onDragEnd = {
-                                when {
-                                    abs(dx) > abs(dy) && abs(dx) > PAGE_SWIPE_PX -> goPage.value(dx < 0)
-                                    dy < -DRAWER_SWIPE_PX -> openDrawer.value()
+                        val isTask = page == com.snsdpen.launcher.model.Page.TASK
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val vt = androidx.compose.ui.input.pointer.util.VelocityTracker()
+                            vt.addPosition(down.uptimeMillis, down.position)
+                            var dx = 0f; var dy = 0f
+                            var mode = 0   // 0 未定 / 1 横(ページ送り) / 2 縦
+                            val slop = viewConfiguration.touchSlop * 1.5f
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!ch.pressed) break
+                                val d = ch.positionChange(); dx += d.x; dy += d.y
+                                vt.addPosition(ch.uptimeMillis, ch.position)
+                                // 横がはっきり大きいときだけ横の操作とみなす(斜めのなぞりでページが変わらないように)
+                                if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) mode = if (abs(dx) > abs(dy) * 1.5f) 1 else 2
+                                if (mode == 1) { ch.consume(); val x = dx * 0.9f; swipeScope.launch { swipeX.snapTo(x) } }
+                                else if (mode == 2 && !isTask) ch.consume()
+                            }
+                            when (mode) {
+                                1 -> {
+                                    val v = vt.calculateVelocity().x
+                                    val far = abs(dx) > swipeW * 0.3f
+                                    val fling = abs(v) > 1800f && abs(dx) > swipeW * 0.12f && (v < 0) == (dx < 0)
+                                    if (far || fling) commitSwipe(dx < 0) else cancelSwipe()
                                 }
-                            },
-                        )
+                                2 -> if (!isTask && dy < -DRAWER_SWIPE_PX) openDrawer.value()
+                            }
+                        }
                     }
                 ),
         ) {
             AnimatedContent(
                 targetState = page,
+                modifier = Modifier.graphicsLayer { translationX = swipeX.value },
                 transitionSpec = {
-                    val dir = if (forward) 1 else -1
-                    (slideInHorizontally(tween(220)) { dir * it } togetherWith
-                        slideOutHorizontally(tween(220)) { -dir * it })
+                    if (dragSwitch) androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                    else {
+                        val dir = if (forward) 1 else -1
+                        (slideInHorizontally(tween(220)) { dir * it } togetherWith
+                            slideOutHorizontally(tween(220)) { -dir * it })
+                    }
                 },
                 label = "page",
             ) { p ->
